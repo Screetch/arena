@@ -96,7 +96,7 @@ mod tests {
 
   #[test]
   fn the_screen_shows_the_bottom_left_corner_of_the_world_over_the_back() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut screen = Screen::new(gpu.painter(), FIRST);
     let view = View::new(&FIRST, [320, 200]);
     let pixels = gpu.painted([320, 200], |target| screen.draw(&view, target));
@@ -108,7 +108,7 @@ mod tests {
 
   #[test]
   fn a_tile_that_comes_back_into_view_is_not_measured_again_at_the_same_scale() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut screen = Screen::new(gpu.painter(), FIRST);
     let mut view = View::new(&FIRST, [320, 200]);
     let tiles = view.tiles(&super::Grid::new(view.scale()));
@@ -132,7 +132,7 @@ mod tests {
 
   #[test]
   fn the_screen_keeps_at_most_twice_the_tiles_that_it_shows_and_forgets_them_at_a_new_scale() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut screen = Screen::new(gpu.painter(), FIRST);
     let mut view = View::new(&FIRST, [320, 200]);
     let shown = |view: &View| view.tiles(&super::Grid::new(view.scale())).len();
