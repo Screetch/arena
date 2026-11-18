@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "arena-client"
+version = "0.0.0"
+dependencies = [
+ "arena-sim",
+]
+
+[[package]]
 name = "arena-sim"
 version = "0.0.0"
