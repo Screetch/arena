@@ -11,11 +11,10 @@ ab_glyph = "0.2"
 arena-sim = { path = "../arena-sim" }
 bytemuck = { version = "1", features = ["derive"] }
 fontdb = "0.24"
+pollster = "1"
 thiserror = "2"
 wgpu = "30"
+winit = "0.30"
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-pollster = "1"

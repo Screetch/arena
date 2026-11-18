@@ -223,6 +223,9 @@ Every pull request and every push to `main` runs the gates in `.github/workflows
   with the width read against the base of a pull request.
 - `the suite` runs `cargo coverage` on Linux, and `the crate on` runs clippy and `cargo coverage` on Windows and on
   macOS, each when the scope says that the change needs it.
+- `the window` runs the client on Linux under Xvfb, a virtual display, for 30 frames, and fails unless it exits with 0,
+  since the coverage leaves out `crates/arena-client/src/main.rs`, which only moves the events of the window. Never run
+  the client on this machine: its window takes the mouse and the keyboard of the owner.
 - `the gates` stands for all the jobs, and a job that the scope skips passes there, so a ruleset of `main` requires
   this check alone, with `the title` and `the contract`.
 

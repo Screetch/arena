@@ -5,4 +5,8 @@
 
 pub mod cells;
 pub mod font;
+#[cfg(test)]
+mod gpu;
 pub mod paint;
+pub mod screen;
+pub mod view;
