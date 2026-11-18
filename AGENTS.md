@@ -22,12 +22,15 @@ The shape of the game is fixed, and each crate serves it:
 - The collisions of the simulation run on rapier2d, with its feature `enhanced-determinism`, so that the same steps
   give the same bodies on each system.
 - The client opens its window with winit and draws with wgpu.
+- The same client runs in a browser, built for WebAssembly: its window is a canvas of the page, wgpu draws there with
+  WebGPU, else with WebGL2, and the browser draws its glyphs from the fonts of the system. Only the start, the window
+  and the source of the glyphs differ from the native client.
 - The game does not use Bevy.
 
 The files beside the crates:
 
 - `rust-toolchain.toml` pins the one Rust of every build, here and in CI, with clippy, rustfmt and
-  `llvm-tools-preview`, which the coverage needs.
+  `llvm-tools-preview`, which the coverage needs, and the target `wasm32-unknown-unknown` of the web client.
 - `Cargo.toml` holds the one version of the workspace, its edition, and the bar of the Rust in
   `[workspace.lints]`. Each crate takes them with `workspace = true`, and has `publish = false`. `rustfmt.toml` holds
   the format of the Rust: a width of 100 and two spaces.
@@ -210,6 +213,12 @@ fix what your change broke, and report what was broken before.
 - `printf '%s\n' <paths> | sh script/scope.sh`, or `sh script/scope.sh --all`: say which jobs of the gates a change
   needs, as the job `the scope` does.
 - `python3 script/title.py "<title>"`: check the title of a pull request, as the check `the title` does.
+- `sh script/web.sh [serve]`: build the web client into `target/web`, with its page from `crates/arena-client/web/`,
+  in a slot of `script/build-slot.sh`. With `serve`, the script then serves it on `http://127.0.0.1:8000`, or on the
+  port that `PORT` gives, and opens no browser. It needs the command `wasm-bindgen` at the version of the crate in
+  `Cargo.lock`, which `sh script/web.sh version` prints: install it with
+  `cargo install wasm-bindgen-cli --version <version> --locked`. The lints of the web client are
+  `cargo clippy -p arena-client --target wasm32-unknown-unknown --lib --bins -- -D warnings`.
 
 ## The gates and the releases
 
@@ -223,6 +232,9 @@ Every pull request and every push to `main` runs the gates in `.github/workflows
   with the width read against the base of a pull request.
 - `the suite` runs `cargo coverage` on Linux, and `the crate on` runs clippy and `cargo coverage` on Windows and on
   macOS, each when the scope says that the change needs it.
+- `the window` runs the native client on a virtual display of Linux for 30 frames, and `the web` runs clippy on the
+  web client and builds it with `script/web.sh`, each when the scope says that the change needs the suite. No job
+  opens the page of the web client.
 - `the window` runs the client on Linux under Xvfb, a virtual display, for 30 frames, and fails unless it exits with 0,
   since the coverage leaves out `crates/arena-client/src/main.rs`, which only moves the events of the window. Never run
   the client on this machine: its window takes the mouse and the keyboard of the owner.

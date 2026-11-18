@@ -7,14 +7,34 @@ publish.workspace = true
 description = "The client of arena, which draws the world as characters."
 
 [dependencies]
-ab_glyph = "0.2"
 arena-sim = { path = "../arena-sim" }
 bytemuck = { version = "1", features = ["derive"] }
-fontdb = "0.24"
-pollster = "1"
 thiserror = "2"
 wgpu = "30"
 winit = "0.30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ab_glyph = "0.2"
+fontdb = "0.24"
+pollster = "1"
+
+# A browser gives the glyphs through a canvas and the graphics adapter only to a future. Its
+# adapter comes from WebGPU, else from WebGL2.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+  "CanvasRenderingContext2d",
+  "Document",
+  "Element",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "ImageData",
+  "Node",
+  "TextMetrics",
+  "Window",
+] }
+wgpu = { version = "30", features = ["webgl"] }
 
 [lints]
 workspace = true
