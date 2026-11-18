@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+    # The type edited starts a run when the base of a PR changes, as when the layer below it in a stack merges and its
+    # base moves to main: no other type does. An edit of the title or of the body starts a run too, which the group
+    # and the jobs below leave empty.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
   # Each night every job runs on main, whatever changed: it proves each system on the sum of the day, and it saves a
@@ -14,9 +18,10 @@ on:
 # One run of the gates for one branch: a push that follows another ends the run before it. On main, it ends only a run
 # that waits, since a group holds one run that waits at most, and the run in progress goes to its end. Only a run of
 # main that passes saves the caches of rust, and a run that a push ends during its save leaves a key that no later run
-# can save.
+# can save. An edit of the title or of the body has a group of its own, so that its run, which runs no job, cancels no
+# run of the gates.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'edited' && github.event.changes.base == null && '-edit' || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -42,6 +47,7 @@ jobs:
     # A job that a push to main skips saves no cache of rust, and the cache that it saved before stays valid: its key
     # holds each manifest and the lock of cargo, and a change of them runs every job.
     name: the scope
+    if: github.event.action != 'edited' || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -71,6 +77,7 @@ jobs:
     # coverage, so the hooks leave it out. The width reads the lines that a pull request adds to its base, the first
     # parent of its commit, so the job fetches two commits.
     name: the hooks
+    if: github.event.action != 'edited' || github.event.changes.base != null
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -201,9 +208,10 @@ jobs:
   gates:
     # The one check that stands for all the gates, so that a ruleset of main requires this check alone, and the
     # conductor merges a PR only when it passes. A job that the scope skips passes here. It runs always, and fails when
-    # a job that it needs failed or was cancelled.
-    name: the gates
-    if: always()
+    # a job that it needs failed or was cancelled. An edit of the title or of the body runs no job, and the check of that
+    # run bears another name, so that no skipped check the gates can stand for a run that did not happen.
+    name: ${{ (github.event.action != 'edited' || github.event.changes.base != null) && 'the gates' || 'an edit, no gates' }}
+    if: always() && (github.event.action != 'edited' || github.event.changes.base != null)
     needs: [scope, hooks, suite, crate, window, web]
     runs-on: ubuntu-latest
     timeout-minutes: 5

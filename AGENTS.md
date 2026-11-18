@@ -240,6 +240,10 @@ Every pull request and every push to `main` runs the gates in `.github/workflows
   the client on this machine: its window takes the mouse and the keyboard of the owner.
 - `the gates` stands for all the jobs, and a job that the scope skips passes there, so a ruleset of `main` requires
   this check alone, with `the title` and `the contract`.
+- The gates run on a pull request when it opens, when its head changes, when it reopens and when its base changes, as
+  when the layer below it in a stack merges and its base moves to `main`. An edit of its title or of its body runs no
+  gates: its run stands in a group of its own, so it cancels no run of the gates, and its check bears another name than
+  `the gates`, so that no skipped check of that name stands for a run that did not happen.
 
 `.github/workflows/titles.yml` runs `script/title.py` on the title of each pull request, at each change of the pull
 request and at each edit of its title. `.github/workflows/contract.yml` runs `script/contract.sh` on each pull request
