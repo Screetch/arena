@@ -175,13 +175,36 @@ jobs:
       - run: xvfb-run -a target/debug/arena-client --frames 30
       - uses: ./.github/actions/clear
 
+  web:
+    # The web client: clippy on the client built for WebAssembly, and its page, its WebAssembly and the glue of
+    # wasm-bindgen, as script/web.sh builds them. The glue needs the command wasm-bindgen at the version of the crate
+    # that Cargo.lock holds. No job opens the page.
+    name: the web
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - id: bindgen
+        run: echo "version=$(sh script/web.sh version)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - run: cargo clippy --locked -p arena-client --target wasm32-unknown-unknown --lib --bins -- -D warnings
+      - run: sh script/web.sh
+      - uses: ./.github/actions/clear
+
   gates:
     # The one check that stands for all the gates, so that a ruleset of main requires this check alone, and the
     # conductor merges a PR only when it passes. A job that the scope skips passes here. It runs always, and fails when
     # a job that it needs failed or was cancelled.
     name: the gates
     if: always()
-    needs: [scope, hooks, suite, crate, window]
+    needs: [scope, hooks, suite, crate, window, web]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -2,3 +2,5 @@
 [toolchain]
 channel = "1.98.1"
 components = ["clippy", "rustfmt", "llvm-tools-preview"]
+# The web client builds for WebAssembly.
+targets = ["wasm32-unknown-unknown"]
