@@ -152,13 +152,36 @@ jobs:
       - run: cargo coverage
       - uses: ./.github/actions/clear
 
+  window:
+    # The file main.rs of the client only moves the events of its window to the client, so the coverage leaves it out,
+    # and this job proves it on Linux: the client opens its window on a virtual display of X11, draws 30 frames on
+    # lavapipe, and exits with 0. Mesa gives lavapipe, Xvfb the display, xkbcommon the keyboard of winit, and DejaVu the
+    # monospace font of the system.
+    name: the window
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends mesa-vulkan-drivers xvfb xauth libxkbcommon-x11-0 \
+            libxcursor1 libxrandr2 libxi6 libx11-xcb1 fonts-dejavu-core
+      - run: cargo build --locked -p arena-client --bin arena-client
+      - run: xvfb-run -a target/debug/arena-client --frames 30
+      - uses: ./.github/actions/clear
+
   gates:
     # The one check that stands for all the gates, so that a ruleset of main requires this check alone, and the
     # conductor merges a PR only when it passes. A job that the scope skips passes here. It runs always, and fails when
     # a job that it needs failed or was cancelled.
     name: the gates
     if: always()
-    needs: [scope, hooks, suite, crate]
+    needs: [scope, hooks, suite, crate, window]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

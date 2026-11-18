@@ -293,86 +293,17 @@ fn float(pixels: u32) -> f32 {
 mod tests {
   use arena_sim::map::FIRST;
 
-  use super::{Painter, Tile};
   use crate::cells::Grid;
-  use crate::font::Glyphs;
-
-  /// Covers the left half of each cell, so that a pixel there shows the ink, and a pixel of the
-  /// right half the fill.
-  struct Halves;
-
-  impl Glyphs for Halves {
-    fn draw(&self, _: char, side: u32) -> Vec<u8> {
-      (0..side * side).map(|at| if at % side < side / 2 { 255 } else { 0 }).collect()
-    }
-  }
-
-  fn painter() -> Painter<Halves> {
-    let instance =
-      wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let adapter =
-      pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-        .expect("the runner has a graphics adapter");
-    let (device, queue) =
-      pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-        .expect("the adapter gives a device");
-    Painter::new(device, queue, wgpu::TextureFormat::Rgba8Unorm, Halves)
-  }
-
-  /// Paints the tiles on a texture of `side` pixels, and reads its pixels back, row by row.
-  fn painted(painter: &Painter<Halves>, side: u32, tiles: &[(&Tile, [i32; 2])]) -> Vec<[u8; 4]> {
-    let texture = painter.device.create_texture(&wgpu::TextureDescriptor {
-      label: None,
-      size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 },
-      mip_level_count: 1,
-      sample_count: 1,
-      dimension: wgpu::TextureDimension::D2,
-      format: wgpu::TextureFormat::Rgba8Unorm,
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-      view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    painter.paint(&view, [side, side], tiles);
-    let row = (side * 4).next_multiple_of(256);
-    let buffer = painter.device.create_buffer(&wgpu::BufferDescriptor {
-      label: None,
-      size: u64::from(row * side),
-      usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-      mapped_at_creation: false,
-    });
-    let mut encoder =
-      painter.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-    encoder.copy_texture_to_buffer(
-      texture.as_image_copy(),
-      wgpu::TexelCopyBufferInfo {
-        buffer: &buffer,
-        layout: wgpu::TexelCopyBufferLayout {
-          offset: 0,
-          bytes_per_row: Some(row),
-          rows_per_image: None,
-        },
-      },
-      texture.size(),
-    );
-    painter.queue.submit([encoder.finish()]);
-    buffer.slice(..).map_async(wgpu::MapMode::Read, |mapped| mapped.expect("the buffer maps"));
-    painter
-      .device
-      .poll(wgpu::PollType::Wait { submission_index: None, timeout: None })
-      .expect("the copy ends");
-    let bytes = buffer.slice(..).get_mapped_range().expect("the buffer is mapped");
-    bytes
-      .chunks(row as usize)
-      .flat_map(|line| line[..side as usize * 4].chunks(4).map(|pixel| pixel.try_into().unwrap()))
-      .collect()
-  }
+  use crate::gpu::Gpu;
 
   #[test]
   fn each_cell_shows_its_ink_over_its_fill_at_its_opacity_over_the_back() {
-    let mut painter = painter();
+    let gpu = Gpu::new();
+    let mut painter = gpu.painter();
     let grid = Grid::new(2.0);
     let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
-    let pixels = painted(&painter, 768, &[(&tile, [0, 0])]);
+    let pixels =
+      gpu.painted([768, 768], |target| painter.paint(target, [768, 768], &[(&tile, [0, 0])]));
     let at = |x: u32, y: u32| pixels[(y * 768 + x) as usize];
     assert_eq!(at(16 + 4, 160 + 8), [126, 138, 167, 255]);
     assert_eq!(at(16 + 12, 160 + 8), [75, 83, 100, 255]);
@@ -383,10 +314,12 @@ mod tests {
 
   #[test]
   fn a_tile_stands_at_its_origin_on_the_target() {
-    let mut painter = painter();
+    let gpu = Gpu::new();
+    let mut painter = gpu.painter();
     let grid = Grid::new(1.0);
     let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
-    let pixels = painted(&painter, 64, &[(&tile, [-8, 16])]);
+    let pixels =
+      gpu.painted([64, 64], |target| painter.paint(target, [64, 64], &[(&tile, [-8, 16])]));
     let at = |x: u32, y: u32| pixels[(y * 64 + x) as usize];
     assert_eq!(at(1, 18), [126, 138, 167, 255]);
     assert_eq!(at(5, 18), [75, 83, 100, 255]);
@@ -396,13 +329,17 @@ mod tests {
 
   #[test]
   fn a_tile_with_no_glyph_and_a_view_with_no_tile_show_only_the_back() {
-    let mut painter = painter();
+    let gpu = Gpu::new();
+    let mut painter = gpu.painter();
     let grid = Grid::new(1.0);
     let glyphs = grid.tile(&FIRST, 2, 0);
     assert_eq!(glyphs, []);
     let empty = painter.bake(grid, &glyphs);
     let back = vec![[43, 47, 58, 255]; 16 * 16];
-    assert_eq!(painted(&painter, 16, &[(&empty, [0, 0])]), back);
-    assert_eq!(painted(&painter, 16, &[]), back);
+    assert_eq!(
+      gpu.painted([16, 16], |target| painter.paint(target, [16, 16], &[(&empty, [0, 0])])),
+      back
+    );
+    assert_eq!(gpu.painted([16, 16], |target| painter.paint(target, [16, 16], &[])), back);
   }
 }

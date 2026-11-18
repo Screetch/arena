@@ -1,10 +1,14 @@
 # The one home of the bar of the coverage. `cargo coverage` runs the tests of the workspace and measures them in the
 # same run, and fails under 100 percent of the lines, the functions and the regions. The hook cargo-test and each job of
 # the gates that runs the tests run it, so no test runs with no measure.
+# The file main.rs of the client only moves the events of its window to the client, so the measure leaves it out, and the
+# job `the window` of the gates runs the client on a virtual display.
 [alias]
 coverage = [
   "llvm-cov",
   "--workspace",
+  "--ignore-filename-regex",
+  "arena-client[/\\\\]src[/\\\\]main\\.rs$",
   "--fail-under-lines",
   "100",
   "--fail-under-functions",
