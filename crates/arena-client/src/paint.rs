@@ -298,7 +298,7 @@ mod tests {
 
   #[test]
   fn each_cell_shows_its_ink_over_its_fill_at_its_opacity_over_the_back() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut painter = gpu.painter();
     let grid = Grid::new(2.0);
     let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
@@ -314,7 +314,7 @@ mod tests {
 
   #[test]
   fn a_tile_stands_at_its_origin_on_the_target() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut painter = gpu.painter();
     let grid = Grid::new(1.0);
     let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
@@ -329,7 +329,7 @@ mod tests {
 
   #[test]
   fn a_tile_with_no_glyph_and_a_view_with_no_tile_show_only_the_back() {
-    let gpu = Gpu::new();
+    let gpu = Gpu::held();
     let mut painter = gpu.painter();
     let grid = Grid::new(1.0);
     let glyphs = grid.tile(&FIRST, 2, 0);

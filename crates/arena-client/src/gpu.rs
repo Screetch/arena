@@ -1,5 +1,7 @@
 //! The graphics adapter of the tests, which draw to a texture and never to a window.
 
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+
 use crate::font::Glyphs;
 use crate::paint::Painter;
 
@@ -18,8 +20,17 @@ pub(crate) struct Gpu {
   queue: wgpu::Queue,
 }
 
+static GPU: LazyLock<Mutex<Gpu>> = LazyLock::new(|| Mutex::new(Gpu::new()));
+
 impl Gpu {
-  pub(crate) fn new() -> Self {
+  /// The one device of the test binary, which one test holds at a time. The harness runs the tests
+  /// on parallel threads, and devices that draw at the same time in one process crash it on the
+  /// adapter of a runner of Windows.
+  pub(crate) fn held() -> MutexGuard<'static, Self> {
+    GPU.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  fn new() -> Self {
     let instance =
       wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter =
