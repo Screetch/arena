@@ -1,25 +1,29 @@
-//! The map on a target: the tiles that a view shows, each drawn once for each scale and kept.
+//! The map on a target: the tiles that a view shows, each measured once for each scale and kept.
 
 use std::collections::HashMap;
 
 use arena_sim::map::Map;
 
-use crate::cells::Grid;
+use crate::cells::{Glyph, Grid};
 use crate::font::Glyphs;
 use crate::paint::{Painter, Tile};
 use crate::view::View;
 
 /// The tiles of a map that the painter drew at the scale of the last view.
 ///
-/// A tile with no glyph holds no texture. When the scale changes, the screen forgets each tile.
-/// It keeps at most twice the tiles that the last view showed, and forgets first the tile that it
-/// showed least lately.
+/// The screen measures the glyphs of a tile once for each scale and keeps them until the scale
+/// changes, so a tile that comes back into view is not measured again. A tile with no glyph holds
+/// no texture. The textures are the costly part to keep: the screen holds at most twice the
+/// tiles that the last view showed, and forgets first the texture that it showed least lately.
 pub struct Screen<G> {
   painter: Painter<G>,
   map: Map,
   grid: Option<Grid>,
+  glyphs: HashMap<(u16, u16), Vec<Glyph>>,
   kept: HashMap<(u16, u16), Kept>,
   frame: u64,
+  #[cfg(test)]
+  measured: usize,
 }
 
 struct Kept {
@@ -30,22 +34,39 @@ struct Kept {
 impl<G: Glyphs> Screen<G> {
   /// The screen of `map`, which `painter` draws.
   pub fn new(painter: Painter<G>, map: Map) -> Self {
-    Self { painter, map, grid: None, kept: HashMap::new(), frame: 0 }
+    Self {
+      painter,
+      map,
+      grid: None,
+      glyphs: HashMap::new(),
+      kept: HashMap::new(),
+      frame: 0,
+      #[cfg(test)]
+      measured: 0,
+    }
   }
 
   /// Draws on `target` the part of the map that `view` shows.
   pub fn draw(&mut self, view: &View, target: &wgpu::TextureView) {
     let grid = Grid::new(view.scale());
     if self.grid != Some(grid) {
+      self.glyphs.clear();
       self.kept.clear();
       self.grid = Some(grid);
     }
     self.frame += 1;
     let spots = view.tiles(&grid);
     for spot in &spots {
-      let kept = self.kept.entry((spot.column, spot.row)).or_insert_with(|| {
-        let glyphs = grid.tile(&self.map, spot.column, spot.row);
-        Kept { tile: (!glyphs.is_empty()).then(|| self.painter.bake(grid, &glyphs)), shown: 0 }
+      let at = (spot.column, spot.row);
+      let kept = self.kept.entry(at).or_insert_with(|| {
+        let glyphs = self.glyphs.entry(at).or_insert_with(|| {
+          #[cfg(test)]
+          {
+            self.measured += 1;
+          }
+          grid.tile(&self.map, spot.column, spot.row)
+        });
+        Kept { tile: (!glyphs.is_empty()).then(|| self.painter.bake(grid, glyphs)), shown: 0 }
       });
       kept.shown = self.frame;
     }
@@ -83,6 +104,30 @@ mod tests {
     assert_eq!(at(1, 195), [126, 138, 167, 255]);
     assert_eq!(at(2, 195), [75, 83, 100, 255]);
     assert_eq!(at(200, 50), [43, 47, 58, 255]);
+  }
+
+  #[test]
+  fn a_tile_that_comes_back_into_view_is_not_measured_again_at_the_same_scale() {
+    let gpu = Gpu::new();
+    let mut screen = Screen::new(gpu.painter(), FIRST);
+    let mut view = View::new(&FIRST, [320, 200]);
+    let tiles = view.tiles(&super::Grid::new(view.scale()));
+    let first = (tiles[0].column, tiles[0].row);
+    gpu.painted([320, 200], |target| screen.draw(&view, target));
+    for _ in 0..40 {
+      view.key(&Key::Named(NamedKey::ArrowRight));
+      gpu.painted([320, 200], |target| screen.draw(&view, target));
+    }
+    assert!(!screen.kept.contains_key(&first));
+    let measured = screen.measured;
+    for _ in 0..40 {
+      view.key(&Key::Named(NamedKey::ArrowLeft));
+      gpu.painted([320, 200], |target| screen.draw(&view, target));
+    }
+    assert_eq!(screen.measured, measured);
+    view.key(&Key::Character("+".into()));
+    gpu.painted([320, 200], |target| screen.draw(&view, target));
+    assert!(screen.measured > measured);
   }
 
   #[test]
