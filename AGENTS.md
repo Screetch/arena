@@ -2,9 +2,8 @@
 
 arena is a multiplayer game of arenas in 2D, in Rust, at its start. The workspace of cargo, `Cargo.toml`, keeps each
 crate in `crates/`, and the crates of the game come one by one, each in a pull request. Today the workspace holds one
-crate, `crates/arena-base`, a placeholder that gives each gate a target and the coverage a crate to count, until the
-first crate of the game takes its place. Claude Code reads this file through `CLAUDE.md`, which holds only
-`@AGENTS.md`.
+crate, `crates/arena-sim`, the shared simulation, which holds the map of the world. Claude Code reads this file through
+`CLAUDE.md`, which holds only `@AGENTS.md`.
 
 The shape of the game is fixed, and each crate serves it:
 
@@ -16,9 +15,9 @@ The shape of the game is fixed, and each crate serves it:
   the room.
 - The modes are DeathMatch, Team DeathMatch, Team DeathMatch with no respawn, Capture The Flag and Last Man Standing.
 - One server serves about 200 players at once, on a small machine.
-- The simulation, with the physics, the classes, the weapons, the projectiles and the modes, runs in 2D in a
-  deterministic crate that the server and the client share, which depends on no window, no graphics adapter and no
-  network. So a prediction of the client and the decision of the server come from the same code.
+- The simulation, with the map, the physics, the classes, the weapons, the projectiles and the modes, runs in 2D in a
+  deterministic crate that the server and the client share, `crates/arena-sim`, which depends on no window, no graphics
+  adapter and no network. So a prediction of the client and the decision of the server come from the same code.
 - The collisions of the simulation run on rapier2d, with its feature `enhanced-determinism`, so that the same steps
   give the same bodies on each system.
 - The client opens its window with winit and draws with wgpu.
@@ -105,7 +104,7 @@ the fix and its proof. An answer that only explains is not done.
 
 - The tests of a crate drive it as its callers do, and assert exact values. A test never weakens an assertion to
   pass: a test that the code fails stays red until the code, or the rule that the test holds, is right.
-- The tests of a module of Rust stand beside it, in its `mod tests`, as in `crates/arena-base/src/lib.rs`.
+- The tests of a module of Rust stand beside it, in its `mod tests`, as in `crates/arena-sim/src/map.rs`.
 - `cargo coverage` runs the tests of the workspace in the run that measures them, and fails under 100 percent of the
   lines, the functions and the regions. Each job of the gates that runs the tests of the Rust runs it, so no test runs
   with no measure. A gap closes with a test, or with the removal of the code that no caller needs, and never with a
