@@ -1,10 +1,10 @@
 [package]
-name = "arena-base"
+name = "arena-sim"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The placeholder of the workspace: it gives every gate a target until the first crate of the game stands."
+description = "The shared simulation of arena, which the server and each client run: today the map of the world."
 
 [lints]
 workspace = true
