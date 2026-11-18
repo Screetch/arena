@@ -117,8 +117,11 @@ jobs:
         with:
           tool: cargo-llvm-cov
       # The tests that draw need a graphics adapter, and a runner of Linux has none: Mesa gives lavapipe, an adapter
-      # of Vulkan that runs on the processor. A runner of Windows has WARP, and a runner of macOS has Metal.
-      - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends mesa-vulkan-drivers
+      # of Vulkan that runs on the processor. A runner of Windows has WARP, and a runner of macOS has Metal. The test of
+      # the font needs a monospace font of the system, which DejaVu gives.
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends mesa-vulkan-drivers fonts-dejavu-core
       - run: cargo coverage
       - uses: ./.github/actions/clear
 

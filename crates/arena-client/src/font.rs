@@ -14,7 +14,8 @@ pub trait Glyphs {
 }
 
 /// A bold monospace font of the system: Menlo, else Consolas, else the default monospace font of
-/// the system.
+/// the system. When the system names a default that it does not hold, the font is the monospace
+/// face of the system whose weight is nearest to bold.
 pub struct SystemFont {
   name: String,
   font: FontVec,
@@ -55,7 +56,14 @@ impl SystemFont {
   fn among(fonts: &Database) -> Result<Self, Error> {
     let families = [Family::Name("Menlo"), Family::Name("Consolas"), Family::Monospace];
     let query = Query { families: &families, weight: Weight::BOLD, ..Query::default() };
-    let face = fonts.query(&query).and_then(|id| fonts.face(id)).ok_or(Error::NoFont)?;
+    let face = fonts
+      .query(&query)
+      .and_then(|id| fonts.face(id))
+      .or_else(|| {
+        let mono = fonts.faces().filter(|face| face.monospaced);
+        mono.min_by_key(|face| face.weight.0.abs_diff(Weight::BOLD.0))
+      })
+      .ok_or(Error::NoFont)?;
     let name = face.post_script_name.clone();
     match fonts
       .with_face_data(face.id, |data, index| FontVec::try_from_vec_and_index(data.to_vec(), index))
@@ -110,20 +118,24 @@ mod tests {
   use super::{Error, Glyphs, SystemFont};
   use crate::cells::RAMP;
 
-  fn menlo(source: Source) -> Database {
+  fn holding(family: &str, monospaced: bool, source: Source) -> Database {
     let mut fonts = Database::new();
     fonts.push_face_info(FaceInfo {
       id: ID::dummy(),
       source,
       index: 0,
-      families: vec![("Menlo".to_owned(), Language::English_UnitedStates)],
-      post_script_name: "Menlo-Bold".to_owned(),
+      families: vec![(family.to_owned(), Language::English_UnitedStates)],
+      post_script_name: format!("{}-Bold", family.replace(' ', "")),
       style: Style::Normal,
       weight: Weight::BOLD,
       stretch: Stretch::Normal,
-      monospaced: true,
+      monospaced,
     });
     fonts
+  }
+
+  fn text() -> Source {
+    Source::Binary(Arc::new(b"not a font".to_vec()))
   }
 
   #[test]
@@ -147,14 +159,22 @@ mod tests {
 
   #[test]
   fn a_system_with_no_monospace_font_gives_no_font() {
-    assert_eq!(fault(&Database::new()).as_deref(), Some("the system holds no monospace font"));
+    let none = Some("the system holds no monospace font");
+    assert_eq!(fault(&Database::new()).as_deref(), none);
+    assert_eq!(fault(&holding("Plain Sans", false, text())).as_deref(), none);
+  }
+
+  #[test]
+  fn a_monospace_face_stands_for_a_default_that_the_system_does_not_hold() {
+    let other = holding("Plain Mono", true, text());
+    assert_eq!(fault(&other).as_deref(), Some("the font PlainMono-Bold is not valid"));
   }
 
   #[test]
   fn a_font_whose_file_is_gone_or_not_a_font_gives_its_name_in_the_error() {
-    let gone = menlo(Source::File(PathBuf::from("/no/such/folder/menlo.ttc")));
+    let gone = holding("Menlo", true, Source::File(PathBuf::from("/no/such/folder/menlo.ttc")));
     assert_eq!(fault(&gone).as_deref(), Some("the file of the font Menlo-Bold cannot be read"));
-    let text = menlo(Source::Binary(Arc::new(b"not a font".to_vec())));
+    let text = holding("Menlo", true, text());
     assert_eq!(fault(&text).as_deref(), Some("the font Menlo-Bold is not valid"));
   }
 }
