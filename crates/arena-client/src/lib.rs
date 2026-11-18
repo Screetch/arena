@@ -4,3 +4,5 @@
 //! map under it and shows one character of [`cells::RAMP`], with its colour and its opacity.
 
 pub mod cells;
+pub mod font;
+pub mod paint;

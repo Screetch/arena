@@ -110,6 +110,8 @@ the fix and its proof. An answer that only explains is not done.
   lines, the functions and the regions. Each job of the gates that runs the tests of the Rust runs it, so no test runs
   with no measure. A gap closes with a test, or with the removal of the code that no caller needs, and never with a
   lower bar.
+- A test that draws renders to a texture, never to a window, so it opens nothing on the screen of the machine. It needs
+  a graphics adapter: on Linux, Mesa gives lavapipe, in the package `mesa-vulkan-drivers`, which the suite installs.
 - A helper that only one file needs lives in that file.
 - A test of speed compares two times that it measures in one run, and takes the least of several runs of each, or
   better counts the work that the code does, which no load changes. A bound in seconds fails on a machine under load.
