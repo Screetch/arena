@@ -27,7 +27,7 @@ runs:
   using: composite
   steps:
     # Windows Defender scans each file that the job reads or writes. With these folders excluded, the steps that touch
-    # many files take less time: in furb, a job of Windows took 227 to 232 s with them against a median of 328 to 364 s.
+    # many files take less time, and a job of Windows that builds the crates of the workspace reads and writes many.
     - if: runner.os == 'Windows'
       shell: pwsh
       run: |
@@ -64,9 +64,9 @@ runs:
     # The key of the cache is the job, the system, a hash of the rust and of the variables of cargo, and a hash of
     # each Cargo.toml, of Cargo.lock and of rust-toolchain.toml. When a lock or a manifest changes, the job restores
     # the cache of the same job, system and rust under its old hash, and cargo builds only the crates that changed.
-    # A key of files that are not those of cargo restores nothing when one of them changes: in furb, a change of a
-    # manifest of python then made every job build every crate again, in up to 25 minutes, and a change of Cargo.lock
-    # made no new key, so main never saved the cache again and each job built the new crates each time.
+    # A key of files that are not those of cargo restores nothing when one of them changes: a change of one of those
+    # files then makes every job build every crate again, and a change of Cargo.lock that makes no new key means that
+    # main never saves the cache again, so each job builds the new crates each time.
     # Only main saves the cache, and a pull request reads the cache of main.
     # Only a job that passes saves it. A job that fails or is cancelled holds part of the build, and a key that
     # matches whole is never saved again, so every later run would build again what that part lacks.
