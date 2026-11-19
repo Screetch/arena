@@ -22,8 +22,6 @@ pub struct Screen<G> {
   glyphs: HashMap<(u16, u16), Vec<Glyph>>,
   kept: HashMap<(u16, u16), Kept>,
   frame: u64,
-  #[cfg(test)]
-  measured: usize,
 }
 
 struct Kept {
@@ -34,16 +32,7 @@ struct Kept {
 impl<G: Glyphs> Screen<G> {
   /// The screen of `map`, which `painter` draws.
   pub fn new(painter: Painter<G>, map: Map) -> Self {
-    Self {
-      painter,
-      map,
-      grid: None,
-      glyphs: HashMap::new(),
-      kept: HashMap::new(),
-      frame: 0,
-      #[cfg(test)]
-      measured: 0,
-    }
+    Self { painter, map, grid: None, glyphs: HashMap::new(), kept: HashMap::new(), frame: 0 }
   }
 
   /// Draws on `target` the part of the map that `view` shows.
@@ -59,13 +48,8 @@ impl<G: Glyphs> Screen<G> {
     for spot in &spots {
       let at = (spot.column, spot.row);
       let kept = self.kept.entry(at).or_insert_with(|| {
-        let glyphs = self.glyphs.entry(at).or_insert_with(|| {
-          #[cfg(test)]
-          {
-            self.measured += 1;
-          }
-          grid.tile(&self.map, spot.column, spot.row)
-        });
+        let glyphs =
+          self.glyphs.entry(at).or_insert_with(|| grid.tile(&self.map, spot.column, spot.row));
         Kept { tile: (!glyphs.is_empty()).then(|| self.painter.bake(grid, glyphs)), shown: 0 }
       });
       kept.shown = self.frame;
@@ -90,7 +74,7 @@ mod tests {
   use arena_sim::map::FIRST;
   use winit::keyboard::{Key, NamedKey};
 
-  use super::Screen;
+  use super::{Map, Screen};
   use crate::gpu::Gpu;
   use crate::view::View;
 
@@ -107,27 +91,31 @@ mod tests {
   }
 
   #[test]
-  fn a_tile_that_comes_back_into_view_is_not_measured_again_at_the_same_scale() {
+  fn a_tile_is_measured_once_for_each_scale_and_not_again_when_it_comes_back_into_view() {
+    const BACK: [u8; 4] = [43, 47, 58, 255];
     let gpu = Gpu::held();
     let mut screen = Screen::new(gpu.painter(), FIRST);
     let mut view = View::new(&FIRST, [320, 200]);
     let tiles = view.tiles(&super::Grid::new(view.scale()));
     let first = (tiles[0].column, tiles[0].row);
-    gpu.painted([320, 200], |target| screen.draw(&view, target));
+    let before = gpu.painted([320, 200], |target| screen.draw(&view, target));
+    assert!(before.contains(&[126, 138, 167, 255]));
     for _ in 0..40 {
       view.key(&Key::Named(NamedKey::ArrowRight));
       gpu.painted([320, 200], |target| screen.draw(&view, target));
     }
     assert!(!screen.kept.contains_key(&first));
-    let measured = screen.measured;
+    // A tile that is measured again would now measure an empty map and show only the back.
+    screen.map = Map { blocks: &[], ramps: &[], ..FIRST };
+    let mut after = Vec::new();
     for _ in 0..40 {
       view.key(&Key::Named(NamedKey::ArrowLeft));
-      gpu.painted([320, 200], |target| screen.draw(&view, target));
+      after = gpu.painted([320, 200], |target| screen.draw(&view, target));
     }
-    assert_eq!(screen.measured, measured);
+    assert_eq!(after, before);
     view.key(&Key::Character("+".into()));
-    gpu.painted([320, 200], |target| screen.draw(&view, target));
-    assert!(screen.measured > measured);
+    let zoomed = gpu.painted([320, 200], |target| screen.draw(&view, target));
+    assert!(zoomed.iter().all(|pixel| *pixel == BACK));
   }
 
   #[test]
