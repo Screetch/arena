@@ -108,7 +108,9 @@ the fix and its proof. An answer that only explains is not done.
 
 - The tests of a crate drive it as its callers do, and assert exact values. A test never weakens an assertion to
   pass: a test that the code fails stays red until the code, or the rule that the test holds, is right.
-- The tests of a module of Rust stand beside it, in its `mod tests`, as in `crates/arena-sim/src/map.rs`.
+- The tests of a module of Rust stand beside it, in its `mod tests`, as in `crates/arena-sim/src/map.rs`. The tests
+  that need a browser stand in `crates/arena-client/tests/`, since the other tests of the client build only for a
+  system: `sh script/web.sh test` runs them, and the coverage, which measures the native code, does not.
 - `cargo coverage` runs the tests of the workspace in the run that measures them, and fails under 100 percent of the
   lines, the functions and the regions. Each job of the gates that runs the tests of the Rust runs it, so no test runs
   with no measure. A gap closes with a test, or with the removal of the code that no caller needs, and never with a
@@ -213,12 +215,14 @@ fix what your change broke, and report what was broken before.
 - `printf '%s\n' <paths> | sh script/scope.sh`, or `sh script/scope.sh --all`: say which jobs of the gates a change
   needs, as the job `the scope` does.
 - `python3 script/title.py "<title>"`: check the title of a pull request, as the check `the title` does.
-- `sh script/web.sh [serve]`: build the web client into `target/web`, with its page from `crates/arena-client/web/`,
-  in a slot of `script/build-slot.sh`. With `serve`, the script then serves it on `http://127.0.0.1:8000`, or on the
-  port that `PORT` gives, and opens no browser. It needs the command `wasm-bindgen` at the version of the crate in
-  `Cargo.lock`, which `sh script/web.sh version` prints: install it with
-  `cargo install wasm-bindgen-cli --version <version> --locked`. The lints of the web client are
-  `cargo clippy -p arena-client --target wasm32-unknown-unknown --lib --bins -- -D warnings`.
+- `sh script/web.sh [serve | test]`: build the web client into `target/web`, with its page from
+  `crates/arena-client/web/`, in a slot of `script/build-slot.sh`. With `serve`, the script then serves it on
+  `http://127.0.0.1:8000`, or on the port that `PORT` gives, and opens no browser. With `test`, it runs the tests of
+  `crates/arena-client/tests/` in place of the build, in a headless browser, through the driver that `CHROMEDRIVER`
+  or `GECKODRIVER` names, else the one on the `PATH`. It needs the commands `wasm-bindgen` and
+  `wasm-bindgen-test-runner` at the version of the crate in `Cargo.lock`, which `sh script/web.sh version` prints:
+  install them with `cargo install wasm-bindgen-cli --version <version> --locked`. The lints of the web client are
+  `cargo clippy -p arena-client --target wasm32-unknown-unknown --lib --bins --test canvas -- -D warnings`.
 
 ## The gates and the releases
 
@@ -232,12 +236,11 @@ Every pull request and every push to `main` runs the gates in `.github/workflows
   with the width read against the base of a pull request.
 - `the suite` runs `cargo coverage` on Linux, and `the crate on` runs clippy and `cargo coverage` on Windows and on
   macOS, each when the scope says that the change needs it.
-- `the window` runs the native client on a virtual display of Linux for 30 frames, and `the web` runs clippy on the
-  web client and builds it with `script/web.sh`, each when the scope says that the change needs the suite. No job
-  opens the page of the web client.
-- `the window` runs the client on Linux under Xvfb, a virtual display, for 30 frames, and fails unless it exits with 0,
-  since the coverage leaves out `crates/arena-client/src/main.rs`, which only moves the events of the window. Never run
-  the client on this machine: its window takes the mouse and the keyboard of the owner.
+- `the window` runs the native client on a virtual display of Linux, Xvfb, for 30 frames, and fails unless it exits with
+  0, since the coverage leaves out `crates/arena-client/src/main.rs`, which only moves the events of the window. Never
+  run the client on this machine: its window takes the mouse and the keyboard of the owner. `the web` runs clippy on
+  the web client, builds it with `script/web.sh`, and runs its tests in a headless Chrome with `script/web.sh test`.
+  Each job runs when the scope says that the change needs the suite. No job opens the page of the web client.
 - `the gates` stands for all the jobs, and a job that the scope skips passes there, so a ruleset of `main` requires
   this check alone, with `the title` and `the contract`.
 
