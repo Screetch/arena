@@ -1,5 +1,8 @@
 # Changelog
 
+Each release of arena is listed here, the newest first. release-please writes the entry of each release from the
+titles of the pull requests that it holds, as [the template of a pull request](.github/pull_request_template.md) says.
+
 ## 0.1.0 (2026-11-18)
 
 
@@ -15,8 +18,3 @@
 ### Performance
 
 * **client:** Measure the glyphs of a tile once for each zoom ([#8](https://github.com/Screetch/arena/issues/8)) ([c130cb2](https://github.com/Screetch/arena/commit/c130cb215cf697882f9e5c8501b808e9c63a7607))
-
-## Changelog
-
-Each release of arena is listed here, the newest first. release-please writes the entry of each release from the
-titles of the pull requests that it holds, as [the template of a pull request](.github/pull_request_template.md) says.
