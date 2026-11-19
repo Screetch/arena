@@ -176,9 +176,10 @@ jobs:
       - uses: ./.github/actions/clear
 
   web:
-    # The web client: clippy on the client built for WebAssembly, and its page, its WebAssembly and the glue of
-    # wasm-bindgen, as script/web.sh builds them. The glue needs the command wasm-bindgen at the version of the crate
-    # that Cargo.lock holds. No job opens the page.
+    # The web client: clippy on the client built for WebAssembly, its page, its WebAssembly and the glue of
+    # wasm-bindgen, as script/web.sh builds them, and its tests in the headless Chrome that the image of the runner
+    # holds with its driver. The glue and the runner of the tests need the commands of wasm-bindgen at the version of
+    # the crate that Cargo.lock holds. No job opens the page.
     name: the web
     needs: scope
     if: needs.scope.outputs.code == 'true'
@@ -194,8 +195,15 @@ jobs:
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
-      - run: cargo clippy --locked -p arena-client --target wasm32-unknown-unknown --lib --bins -- -D warnings
+      - run: >-
+          cargo clippy --locked -p arena-client --target wasm32-unknown-unknown --lib --bins --test canvas
+          -- -D warnings
       - run: sh script/web.sh
+      # Chrome draws the glyphs of the tests from the monospace font of the system, which DejaVu gives.
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends fonts-dejavu-core
+      - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" sh script/web.sh test
       - uses: ./.github/actions/clear
 
   gates:

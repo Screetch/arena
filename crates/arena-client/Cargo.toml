@@ -36,5 +36,9 @@ web-sys = { version = "0.3", features = [
 ] }
 wgpu = { version = "30", features = ["webgl"] }
 
+# The tests of the glyphs of a browser run in a headless browser, which wasm-bindgen-test drives.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [lints]
 workspace = true
