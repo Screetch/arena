@@ -1,5 +1,5 @@
 #!/bin/sh
-# The guards of the gates before each commit, each one the guard of furb for the same fault, in the stack of this
+# The guards of the gates before each commit, each one a gate check for the same fault, in the stack of this
 # workspace. It prints only what fails, so that the tail of a command that commits and pushes shows the push. A commit
 # checks the files that it stages, as the index holds them, and pre-merge-commit runs it for a merge that no conflict
 # stopped, which reads the index against its first parent, as a commit does. A hand run runs every guard on the whole

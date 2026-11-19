@@ -176,7 +176,7 @@ fix what your change broke, and report what was broken before.
 - `cargo coverage`: the tests of the workspace with their coverage, which must be whole. It needs cargo-llvm-cov, which
   `cargo install cargo-llvm-cov --locked` installs. `cargo test --workspace` runs the tests with no measure, as a quick
   probe.
-- `sh script/hooks/pre-commit run`: every guard of the commit hook, on the whole tree, each one the guard of furb for
+- `sh script/hooks/pre-commit run`: every guard of the commit hook, on the whole tree, each one a gate check for
   the same fault:
   - `stray`: no `*.rej`, `*.orig` or `*-E` file. `large-files`: no file that the change adds holds more than 500 KB.
   - `merge-conflict`, `trailing-whitespace`, `end-of-file` and `mixed-line-ending`: no marker of a merge conflict, no
