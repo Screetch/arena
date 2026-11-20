@@ -9,6 +9,7 @@ description = "The client of arena, which draws the world as characters."
 [dependencies]
 arena-sim = { path = "../arena-sim" }
 bytemuck = { version = "1", features = ["derive"] }
+libm = "0.2"
 thiserror = "2"
 wgpu = "30"
 winit = "0.30"

@@ -21,6 +21,7 @@ struct Mark {
   ink: [u8; 4],
   fill: [u8; 4],
   opacity: f32,
+  fill_opacity: f32,
 }
 
 /// The pipelines that draw the tiles and place them on a target, with the glyphs of their cells.
@@ -161,7 +162,8 @@ impl Mark {
       level: u32::from(glyph.level),
       ink: [r, g, b, 255],
       fill: [fr, fg, fb, 255],
-      opacity: glyph.opacity,
+      opacity: single(glyph.opacity),
+      fill_opacity: single(glyph.fill_opacity),
     }
   }
 }
@@ -170,7 +172,7 @@ const MARKS: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
   array_stride: size_of::<Mark>() as u64,
   step_mode: wgpu::VertexStepMode::Instance,
   attributes: &wgpu::vertex_attr_array![
-    0 => Uint16x2, 1 => Uint32, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Float32
+    0 => Uint16x2, 1 => Uint32, 2 => Unorm8x4, 3 => Unorm8x4, 4 => Float32, 5 => Float32
   ],
 };
 
@@ -279,6 +281,11 @@ fn atlas(
       wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
     ],
   })
+}
+
+#[expect(clippy::cast_possible_truncation, reason = "the shader reads each opacity in f32")]
+fn single(value: f64) -> f32 {
+  value as f32
 }
 
 #[expect(

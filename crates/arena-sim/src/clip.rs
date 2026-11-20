@@ -6,9 +6,9 @@
 //! of the book, which the client draws.
 
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::str::{FromStr, SplitAsciiWhitespace};
 use std::sync::LazyLock;
+
+use crate::words::Words;
 
 /// The frames that a clip plays each second.
 pub const FPS: u32 = 40;
@@ -459,20 +459,20 @@ impl Sprite {
 fn sprites(text: &str) -> HashMap<u16, Sprite> {
   let mut read: Vec<(u16, Sprite)> = Vec::new();
   for line in text.lines() {
-    let mut words = line.split_ascii_whitespace();
+    let mut words = Words::new(line);
     let kind = words.next();
     if kind == Some("sprite") {
-      read.push((number(&mut words), Sprite::default()));
+      read.push((words.number(), Sprite::default()));
       continue;
     }
     let (_, sprite) = read.last_mut().expect("a line sprite starts the data of a book");
     match kind {
       Some("label") => {
-        let name = word(&mut words).to_owned();
-        sprite.labels.push((name, number(&mut words)));
+        let name = words.word().to_owned();
+        sprite.labels.push((name, words.number()));
       }
       Some("script") => {
-        let frame = number(&mut words);
+        let frame = words.number();
         let ops = script(&mut words, sprite);
         sprite.scripts.insert(frame, ops);
       }
@@ -489,7 +489,7 @@ fn sprites(text: &str) -> HashMap<u16, Sprite> {
   clippy::expect_used,
   reason = "the books are data of the crate, which its tests read whole"
 )]
-fn script(words: &mut SplitAsciiWhitespace<'_>, sprite: &Sprite) -> Vec<Op> {
+fn script(words: &mut Words<'_>, sprite: &Sprite) -> Vec<Op> {
   let mut ops = Vec::new();
   while let Some(op) = words.next() {
     ops.push(match op {
@@ -498,9 +498,9 @@ fn script(words: &mut SplitAsciiWhitespace<'_>, sprite: &Sprite) -> Vec<Op> {
       _ => {
         let frame = match words.next() {
           Some("label") => {
-            sprite.label(word(words)).expect("a script goes to a label of its sprite")
+            sprite.label(words.word()).expect("a script goes to a label of its sprite")
           }
-          _ => number(words),
+          _ => words.number(),
         };
         Op::Go { frame, play: op == "play" }
       }
@@ -512,38 +512,22 @@ fn script(words: &mut SplitAsciiWhitespace<'_>, sprite: &Sprite) -> Vec<Op> {
 /// A child of a frame: its depth, its instance, its id, its name or `-`, the six numbers of its
 /// matrix, its opacity and its ratio, then its filters: `shadow` with its colour, its strength and
 /// its blur, and `blur` with its blur.
-fn place(words: &mut SplitAsciiWhitespace<'_>) -> Place {
-  let (depth, instance, id) = (number(words), number(words), number(words));
-  let name = Some(word(words)).filter(|&name| name != "-").map(str::to_owned);
-  let matrix = [(); 6].map(|()| number(words));
-  let (alpha, ratio) = (number(words), number(words));
+fn place(words: &mut Words<'_>) -> Place {
+  let [depth, instance, id] = words.numbers();
+  let name = Some(words.word()).filter(|&name| name != "-").map(str::to_owned);
+  let matrix = words.numbers();
+  let [alpha, ratio] = words.numbers();
   let (mut shadow, mut blur) = (None, None);
   while let Some(filter) = words.next() {
     if filter == "shadow" {
-      let colour = [(); 4].map(|()| number(words));
-      let strength = number(words);
-      shadow = Some(Shadow { colour, strength, blur: [number(words), number(words)] });
+      let colour = words.numbers();
+      let strength = words.number();
+      shadow = Some(Shadow { colour, strength, blur: words.numbers() });
     } else {
-      blur = Some([number(words), number(words)]);
+      blur = Some(words.numbers());
     }
   }
   Place { depth, instance, id, name, matrix, alpha, ratio, shadow, blur }
-}
-
-#[expect(
-  clippy::expect_used,
-  reason = "the books are data of the crate, which its tests read whole"
-)]
-fn word<'a>(words: &mut SplitAsciiWhitespace<'a>) -> &'a str {
-  words.next().expect("the data of a book holds a word here")
-}
-
-#[expect(
-  clippy::expect_used,
-  reason = "the books are data of the crate, which its tests read whole"
-)]
-fn number<T: FromStr<Err: Debug>>(words: &mut SplitAsciiWhitespace<'_>) -> T {
-  word(words).parse().expect("the data of a book holds a number here")
 }
 
 #[cfg(test)]
