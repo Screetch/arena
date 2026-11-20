@@ -80,7 +80,7 @@ The authoring gate still refuses a new one.
 
 Before you judge a candidate, read the whole test and the code that owns its behavior: the entry point, the
 callers, the callees, the tests that overlap it, the gate of CI that runs it, and its history. When the test
-claims a behavior of a dependency, such as rapier2d, wgpu, winit or a crate of the network, read that dependency.
+claims a behavior of a dependency, such as libm, wgpu, winit or a crate of the network, read that dependency.
 
 ## Discovery
 
