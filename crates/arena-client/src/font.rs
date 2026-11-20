@@ -20,16 +20,18 @@ const NAMED: [&str; 2] = ["Menlo", "Consolas"];
 /// A browser gives its fonts in another way than a system, so each platform has a source of its
 /// own, and the drawing reads only this interface.
 pub trait Glyphs {
-  /// Draws `character` in bold, centred in a square of `side` pixels, at a size of 1.15 times the
-  /// side, as one byte of coverage for each pixel, row by row. The square clips the glyph.
-  fn draw(&self, character: char, side: u32) -> Vec<u8>;
+  /// Draws `character` in bold, centred in a cell of `size` pixels, its width and its height, at
+  /// the least of 1.15 times its height and 1.9 times its width, as one byte of coverage for each
+  /// pixel, row by row. The cell clips the glyph.
+  fn draw(&self, character: char, size: [u32; 2]) -> Vec<u8>;
 }
 
-/// The size of the em of the font in a square of `side` pixels, in whole pixels, at least 4.
+/// The size of the em of the font in a cell of `size` pixels, its width and its height: the least
+/// of 1.15 times its height and 1.9 times its width, in whole pixels, at least 4.
 #[expect(
   clippy::cast_precision_loss,
   reason = "a side of a cell is far under 2^24, which an f32 holds whole"
 )]
-fn em(side: u32) -> f32 {
-  (1.15 * side as f32).round().max(4.0)
+fn em(size: [u32; 2]) -> f32 {
+  (1.15 * size[1] as f32).min(1.9 * size[0] as f32).round().max(4.0)
 }

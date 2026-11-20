@@ -75,24 +75,23 @@ impl Glyphs for SystemFont {
     reason = "a side of a cell and each pixel in it are far under 2^24, and a coverage lies from 0 \
               to 1"
   )]
-  fn draw(&self, character: char, side: u32) -> Vec<u8> {
-    let width = side as f32;
+  fn draw(&self, character: char, size: [u32; 2]) -> Vec<u8> {
+    let [width, height] = size.map(|side| side as f32);
     let units = self.font.units_per_em().unwrap_or(1.0);
-    let scale = PxScale::from(em(side) * self.font.height_unscaled() / units);
+    let scale = PxScale::from(em(size) * self.font.height_unscaled() / units);
     let font = self.font.as_scaled(scale);
     let mut glyph = font.scaled_glyph(character);
-    let middle = width / 2.0;
     glyph.position = point(
-      middle - font.h_advance(glyph.id) / 2.0,
-      middle + f32::midpoint(font.ascent(), font.descent()),
+      width / 2.0 - font.h_advance(glyph.id) / 2.0,
+      height / 2.0 + f32::midpoint(font.ascent(), font.descent()),
     );
-    let mut mask = vec![0; (side * side) as usize];
+    let mut mask = vec![0; (size[0] * size[1]) as usize];
     if let Some(outline) = font.outline_glyph(glyph) {
       let bounds = outline.px_bounds();
       outline.draw(|x, y, coverage| {
         let (x, y) = (bounds.min.x + x as f32, bounds.min.y + y as f32);
-        if (0.0..width).contains(&x) && (0.0..width).contains(&y) {
-          mask[(y as u32 * side + x as u32) as usize] = (coverage * 255.0).round() as u8;
+        if (0.0..width).contains(&x) && (0.0..height).contains(&y) {
+          mask[(y as u32 * size[0] + x as u32) as usize] = (coverage * 255.0).round() as u8;
         }
       });
     }
@@ -136,7 +135,7 @@ mod tests {
     let font = SystemFont::find().expect("the system holds a monospace font");
     assert!(!font.name().is_empty());
     let ink = |character: char| {
-      let mask = font.draw(character, 16);
+      let mask = font.draw(character, [16, 16]);
       assert_eq!(mask.len(), 256, "{character}");
       mask.iter().map(|&coverage| u32::from(coverage)).sum::<u32>()
     };
@@ -144,6 +143,9 @@ mod tests {
       assert_eq!(ink(character) == 0, level == 0, "{character}");
     }
     assert!(ink('.') < ink('@'));
+    let narrow = font.draw('@', [3, 4]);
+    assert_eq!(narrow.len(), 12);
+    assert!(narrow.iter().any(|&coverage| coverage > 0));
   }
 
   fn fault(fonts: &Database) -> Option<String> {
