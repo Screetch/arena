@@ -13,7 +13,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 fn the_canvas_of_the_browser_draws_each_character_of_the_ramp_but_the_space() {
   let font = CanvasFont::new().expect("the page gives a canvas with a 2D context");
   let ink = |character: char, side: u32| {
-    let mask = font.draw(character, side);
+    let mask = font.draw(character, [side, side]);
     assert_eq!(mask.len(), (side * side) as usize, "{character}");
     mask.iter().map(|&coverage| u32::from(coverage)).sum::<u32>()
   };
@@ -27,6 +27,7 @@ fn the_canvas_of_the_browser_draws_each_character_of_the_ramp_but_the_space() {
 #[wasm_bindgen_test]
 fn a_glyph_leaves_no_ink_on_the_next_one() {
   let font = CanvasFont::new().expect("the page gives a canvas with a 2D context");
-  assert_ne!(font.draw('@', 16), vec![0; 256]);
-  assert_eq!(font.draw(' ', 16), vec![0; 256]);
+  assert_ne!(font.draw('@', [16, 16]), vec![0; 256]);
+  assert_eq!(font.draw(' ', [16, 16]), vec![0; 256]);
+  assert_eq!(font.draw('@', [3, 4]).len(), 12);
 }

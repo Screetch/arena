@@ -1,6 +1,7 @@
 struct Sizes {
-  cell: f32,
-  side: f32,
+  cell: vec2f,
+  texture: vec2f,
+  margin: vec2f,
 }
 
 struct Mark {
@@ -27,15 +28,16 @@ fn place(
   @location(5) fill_opacity: f32,
 ) -> Mark {
   var corners = array(vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0), vec2f(1.0, 1.0));
-  let origin = vec2f(cell) * sizes.cell;
-  let at = (origin + corners[corner] * sizes.cell) / sizes.side;
-  return Mark(vec4f(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, 0.0, 1.0), origin, level, ink, fill, opacity, fill_opacity);
+  let origin = sizes.margin + vec2f(cell) * sizes.cell;
+  let at = (origin + corners[corner] * sizes.cell) / sizes.texture;
+  let position = vec4f(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, 0.0, 1.0);
+  return Mark(position, origin, level, ink, fill, opacity, fill_opacity);
 }
 
 @fragment
 fn cover(mark: Mark) -> @location(0) vec4f {
   let pixel = vec2u(mark.at.xy - mark.origin);
-  let slot = mark.level * u32(sizes.cell);
+  let slot = mark.level * u32(sizes.cell.x);
   let ink = textureLoad(atlas, vec2u(slot + pixel.x, pixel.y), 0).r * mark.opacity;
   let fill = mark.fill_opacity * (1.0 - ink);
   return vec4f(mark.ink.rgb * ink + mark.fill.rgb * fill, ink + fill);

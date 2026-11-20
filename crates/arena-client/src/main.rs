@@ -1,4 +1,5 @@
-//! The window of the client: it moves the events of the window to the view, and draws each frame.
+//! The window of the client: it moves the events of the window to the play, and draws each frame
+//! at the time of the window.
 //!
 //! On a system, `arena-client --frames <n>` ends after n frames, as the gate does under a virtual
 //! display. In a browser, the window is a canvas that the page sizes, and wgpu draws with WebGPU,
@@ -8,12 +9,12 @@ use std::sync::Arc;
 
 use arena_client::font;
 use arena_client::paint::Painter;
+use arena_client::play::Play;
 use arena_client::screen::Screen;
-use arena_client::view::View;
 use arena_sim::map::FIRST;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle};
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -64,7 +65,8 @@ struct Open {
   queue: wgpu::Queue,
   config: wgpu::SurfaceConfiguration,
   screen: Screen<Font>,
-  view: View,
+  play: Play,
+  clock: Clock,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -140,9 +142,20 @@ impl ApplicationHandler<Opened> for Client {
     match event {
       WindowEvent::CloseRequested => events.exit(),
       WindowEvent::Resized(size) => open.resize(size),
-      WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-        if open.view.key(&event.logical_key) {
-          open.window.request_redraw();
+      WindowEvent::KeyboardInput { event, .. } => {
+        open.play.key(&event.logical_key, event.state == ElementState::Pressed);
+      }
+      WindowEvent::CursorMoved { position, .. } => open.play.point([position.x, position.y]),
+      WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+        open.play.button(state == ElementState::Pressed);
+      }
+      WindowEvent::MouseWheel { delta, .. } => {
+        let y = match delta {
+          MouseScrollDelta::LineDelta(_, y) => f64::from(y),
+          MouseScrollDelta::PixelDelta(position) => position.y,
+        };
+        if y != 0.0 {
+          open.play.wheel(y < 0.0);
         }
       }
       WindowEvent::RedrawRequested => {
@@ -151,10 +164,10 @@ impl ApplicationHandler<Opened> for Client {
           *left = left.saturating_sub(1);
           if *left == 0 {
             events.exit();
-          } else {
-            open.window.request_redraw();
+            return;
           }
         }
+        open.window.request_redraw();
       }
       _ => {}
     }
@@ -240,9 +253,9 @@ impl Open {
     surface.configure(&device, &config);
     let screen =
       Screen::new(Painter::new(device.clone(), queue.clone(), config.format, font), FIRST);
-    let view = View::new(&FIRST, [config.width, config.height]);
+    let play = Play::new([config.width, config.height]);
     window.focus_window();
-    Ok(Self { window, surface, device, queue, config, screen, view })
+    Ok(Self { window, surface, device, queue, config, screen, play, clock: Clock::new() })
   }
 
   fn resize(&mut self, size: PhysicalSize<u32>) {
@@ -252,7 +265,7 @@ impl Open {
     self.config.width = size.width;
     self.config.height = size.height;
     self.surface.configure(&self.device, &self.config);
-    self.view.resize([size.width, size.height]);
+    self.play.resize([size.width, size.height]);
     self.window.request_redraw();
   }
 
@@ -268,8 +281,39 @@ impl Open {
       }
     };
     let target = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-    self.screen.draw(&self.view, &target);
+    let sprites = self.play.frame(self.clock.seconds());
+    self.screen.draw(self.play.view(), &sprites, &target);
     self.window.pre_present_notify();
     self.queue.present(frame);
+  }
+}
+
+/// The time of the window, in seconds: from the start of the client on a system, and from the
+/// start of the page in a browser.
+#[cfg(not(target_arch = "wasm32"))]
+struct Clock(std::time::Instant);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Clock {
+  fn new() -> Self {
+    Self(std::time::Instant::now())
+  }
+
+  fn seconds(&self) -> f64 {
+    self.0.elapsed().as_secs_f64()
+  }
+}
+
+#[cfg(target_arch = "wasm32")]
+struct Clock(Option<web_sys::Performance>);
+
+#[cfg(target_arch = "wasm32")]
+impl Clock {
+  fn new() -> Self {
+    Self(web_sys::window().and_then(|window| window.performance()))
+  }
+
+  fn seconds(&self) -> f64 {
+    self.0.as_ref().map_or(0.0, |performance| performance.now() / 1000.0)
   }
 }

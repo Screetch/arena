@@ -10,8 +10,9 @@ use crate::paint::Painter;
 pub(crate) struct Halves;
 
 impl Glyphs for Halves {
-  fn draw(&self, _: char, side: u32) -> Vec<u8> {
-    (0..side * side).map(|at| if at % side < side / 2 { 255 } else { 0 }).collect()
+  fn draw(&self, _: char, size: [u32; 2]) -> Vec<u8> {
+    let [width, height] = size;
+    (0..width * height).map(|at| if at % width < width / 2 { 255 } else { 0 }).collect()
   }
 }
 

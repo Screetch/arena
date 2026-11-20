@@ -45,23 +45,23 @@ impl Glyphs for CanvasFont {
     reason = "a canvas of at least 4 pixels on a side that holds only the text of the client \
               measures text, draws it and gives its pixels"
   )]
-  fn draw(&self, character: char, side: u32) -> Vec<u8> {
-    self.canvas.set_width(side);
-    self.canvas.set_height(side);
-    self.context.set_font(&format!("bold {}px {}, monospace", em(side), NAMED.join(", ")));
+  fn draw(&self, character: char, size: [u32; 2]) -> Vec<u8> {
+    self.canvas.set_width(size[0]);
+    self.canvas.set_height(size[1]);
+    self.context.set_font(&format!("bold {}px {}, monospace", em(size), NAMED.join(", ")));
     self.context.set_fill_style_str("white");
     let text = character.to_string();
     let metrics = self.context.measure_text(&text).expect("the canvas measures text");
-    let middle = f64::from(side) / 2.0;
+    let middle = f64::from(size[1]) / 2.0;
     let baseline =
       middle + (metrics.font_bounding_box_ascent() - metrics.font_bounding_box_descent()) / 2.0;
     self
       .context
-      .fill_text(&text, middle - metrics.width() / 2.0, baseline)
+      .fill_text(&text, f64::from(size[0]) / 2.0 - metrics.width() / 2.0, baseline)
       .expect("the canvas draws text");
-    let side = f64::from(side);
+    let [width, height] = size.map(f64::from);
     let pixels =
-      self.context.get_image_data(0.0, 0.0, side, side).expect("the canvas gives its pixels");
+      self.context.get_image_data(0.0, 0.0, width, height).expect("the canvas gives its pixels");
     pixels.data().0.into_iter().skip(3).step_by(4).collect()
   }
 }

@@ -1,11 +1,12 @@
-//! The part of the world that the window shows, and the keys that move it.
+//! The part of the world that the window shows, and the keys that zoom it.
 
 use std::ops::Range;
 
 use arena_sim::map::Map;
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::Key;
 
 use crate::cells::{Grid, TILE};
+use crate::sample::Matrix;
 
 /// The units of the world that a view shows at the zoom 1, as much as the window holds with no
 /// distortion.
@@ -14,11 +15,10 @@ const SHOWN: [f64; 2] = [1600.0, 1000.0];
 /// The steps of the zoom, each a quarter of a power of two: from 0.5 to 4.
 const ZOOMS: Range<i32> = -4..9;
 
-/// A rectangle of the world on a window, which stays in the world.
+/// A rectangle of the world on a window, whose top left corner follows a camera.
 ///
 /// Its scale, in pixels of the window for each unit of the world, fits the window to about 1600 by
-/// 1000 units at the zoom 1. When the world is narrower or lower than the view, the view centres
-/// it.
+/// 1000 units at the zoom 1.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
   world: [f64; 2],
@@ -40,13 +40,16 @@ pub struct Spot {
 }
 
 impl View {
-  /// The view of `map` on a window of `size` pixels, on the bottom left corner of the world. Each
+  /// The view of `map` on a window of `size` pixels, from the top left corner of the world. Each
   /// side of the window holds at least one pixel.
   pub fn new(map: &Map, size: [u32; 2]) -> Self {
-    let world = [f64::from(map.width), f64::from(map.height)];
-    let mut view = Self { world, size, zoom: 0, left: 0.0, top: world[1] };
-    view.clamp();
-    view
+    Self {
+      world: [f64::from(map.width), f64::from(map.height)],
+      size,
+      zoom: 0,
+      left: 0.0,
+      top: 0.0,
+    }
   }
 
   /// The size of the window, in pixels.
@@ -60,24 +63,37 @@ impl View {
     fit * 2f64.powf(f64::from(self.zoom) / 4.0)
   }
 
+  /// The units of the world that the view shows, in x and in y.
+  pub fn shown(&self) -> [f64; 2] {
+    let scale = self.scale();
+    self.size.map(|pixels| f64::from(pixels) / scale)
+  }
+
   /// Fits the view to a window of `size` pixels, with the same top left corner in the world.
   pub fn resize(&mut self, size: [u32; 2]) {
     self.size = size;
-    self.clamp();
   }
 
-  /// Moves the view a sixteenth of its size for an arrow key, and zooms in for + or = and out for
-  /// -, about the centre of the view. Says whether the key is one of these.
+  /// Puts the top left corner of the view on `camera`, in units of the world, each rounded to the
+  /// nearest whole unit, a half up.
+  pub fn follow(&mut self, camera: [f64; 2]) {
+    [self.left, self.top] = camera.map(|at| (at + 0.5).floor());
+  }
+
+  /// The matrix from the units of the world to the pixels of the window.
+  pub fn matrix(&self) -> Matrix {
+    let scale = self.scale();
+    [scale, 0.0, 0.0, scale, -self.left * scale, -self.top * scale]
+  }
+
+  /// Zooms in for + or = and out for -. Says whether the key is one of these.
   pub fn key(&mut self, key: &Key) -> bool {
-    match key {
-      Key::Named(NamedKey::ArrowLeft) => self.pan([-1.0, 0.0]),
-      Key::Named(NamedKey::ArrowRight) => self.pan([1.0, 0.0]),
-      Key::Named(NamedKey::ArrowUp) => self.pan([0.0, -1.0]),
-      Key::Named(NamedKey::ArrowDown) => self.pan([0.0, 1.0]),
-      Key::Character(text) if text == "+" || text == "=" => self.zoom(1),
-      Key::Character(text) if text == "-" => self.zoom(-1),
+    let step = match key {
+      Key::Character(text) if text == "+" || text == "=" => 1,
+      Key::Character(text) if text == "-" => -1,
       _ => return false,
-    }
+    };
+    self.zoom = (self.zoom + step).clamp(ZOOMS.start, ZOOMS.end - 1);
     true
   }
 
@@ -96,39 +112,6 @@ impl View {
     }
     spots
   }
-
-  fn shown(&self) -> [f64; 2] {
-    let scale = self.scale();
-    self.size.map(|pixels| f64::from(pixels) / scale)
-  }
-
-  fn pan(&mut self, way: [f64; 2]) {
-    let shown = self.shown();
-    self.left += way[0] * shown[0] / 16.0;
-    self.top += way[1] * shown[1] / 16.0;
-    self.clamp();
-  }
-
-  fn zoom(&mut self, step: i32) {
-    let before = self.shown();
-    self.zoom = (self.zoom + step).clamp(ZOOMS.start, ZOOMS.end - 1);
-    let after = self.shown();
-    self.left += (before[0] - after[0]) / 2.0;
-    self.top += (before[1] - after[1]) / 2.0;
-    self.clamp();
-  }
-
-  fn clamp(&mut self) {
-    let shown = self.shown();
-    self.left = within(self.left, shown[0], self.world[0]);
-    self.top = within(self.top, shown[1], self.world[1]);
-  }
-}
-
-/// The start of a side of `shown` units in a side of the world: in the world, or centred on it
-/// when the world is shorter.
-fn within(start: f64, shown: f64, world: f64) -> f64 {
-  if shown >= world { (world - shown) / 2.0 } else { start.clamp(0.0, world - shown) }
 }
 
 /// The tiles of `span` units that a side of `shown` units from `start` shows in the world.
@@ -174,29 +157,32 @@ mod tests {
   }
 
   #[test]
-  fn a_view_starts_on_the_bottom_left_corner_and_shows_its_tiles() {
-    let view = View::new(&FIRST, [1600, 1000]);
+  #[expect(clippy::float_cmp, reason = "a view of whole pixels holds exact units")]
+  fn a_view_shows_the_tiles_under_its_camera() {
+    let mut view = View::new(&FIRST, [1600, 1000]);
+    view.follow([0.0, 1000.0]);
     let spots = view.tiles(&Grid::new(view.scale()));
     assert!((view.scale() - 1.0).abs() < 1e-12);
+    assert_eq!(view.shown(), [1600.0, 1000.0]);
     assert_eq!(spots.len(), 5 * 4);
     assert_eq!(spots[0], Spot { column: 0, row: 2, origin: [0, -232] });
     assert_eq!(spots[19], Spot { column: 4, row: 5, origin: [4 * 384, 5 * 384 - 1000] });
   }
 
   #[test]
-  fn an_arrow_moves_a_sixteenth_of_the_view_and_the_view_stays_in_the_world() {
+  #[expect(clippy::float_cmp, reason = "a view of whole pixels holds exact units")]
+  fn a_view_rounds_its_camera_to_whole_units_a_half_up() {
     let mut view = View::new(&FIRST, [1600, 1000]);
-    press(&mut view, &Key::Named(NamedKey::ArrowLeft), 1);
-    press(&mut view, &Key::Named(NamedKey::ArrowDown), 1);
-    assert_eq!(first(&view).origin, [0, -232]);
-    press(&mut view, &Key::Named(NamedKey::ArrowRight), 1);
-    press(&mut view, &Key::Named(NamedKey::ArrowUp), 2);
+    view.follow([99.5, 874.5]);
     assert_eq!(first(&view), Spot { column: 0, row: 2, origin: [-100, -107] });
-    press(&mut view, &Key::Named(NamedKey::ArrowRight), 100);
-    assert_eq!(first(&view), Spot { column: 8, row: 2, origin: [8 * 384 - 3200, -107] });
+    assert_eq!(view.matrix(), [1.0, 0.0, 0.0, 1.0, -100.0, -875.0]);
+    view.follow([-150.5, -0.4]);
+    assert_eq!(view.matrix(), [1.0, 0.0, 0.0, 1.0, 150.0, 0.0]);
+    assert_eq!(first(&view), Spot { column: 0, row: 0, origin: [150, 0] });
   }
 
   #[test]
+  #[expect(clippy::float_cmp, reason = "a view of whole pixels holds exact units")]
   fn plus_and_minus_zoom_by_quarters_of_a_power_of_two_from_one_half_to_four() {
     let mut view = View::new(&FIRST, [1600, 1000]);
     press(&mut view, &Key::Character("+".into()), 1);
@@ -205,27 +191,21 @@ mod tests {
     assert!((view.scale() - 4.0).abs() < 1e-12);
     press(&mut view, &Key::Character("-".into()), 40);
     assert!((view.scale() - 0.5).abs() < 1e-12);
-    assert_eq!(first(&view), Spot { column: 0, row: 0, origin: [0, 0] });
+    assert_eq!(view.shown(), [3200.0, 2000.0]);
     assert!(!view.key(&Key::Character("a".into())));
-    assert!(!view.key(&Key::Named(NamedKey::Space)));
+    assert!(!view.key(&Key::Named(NamedKey::ArrowLeft)));
   }
 
   #[test]
-  fn a_zoom_keeps_the_centre_of_the_view() {
-    let mut view = View::new(&FIRST, [1600, 1000]);
-    press(&mut view, &Key::Named(NamedKey::ArrowRight), 16);
-    press(&mut view, &Key::Named(NamedKey::ArrowUp), 4);
-    press(&mut view, &Key::Character("+".into()), 4);
-    assert!((view.scale() - 2.0).abs() < 1e-12);
-    assert_eq!(first(&view), Spot { column: 5, row: 2, origin: [5 * 768 - 4000, 2 * 768 - 2000] });
-  }
-
-  #[test]
-  fn a_window_wider_or_higher_than_the_world_centres_it() {
+  #[expect(clippy::float_cmp, reason = "a view of whole pixels holds exact units")]
+  fn a_window_wider_or_higher_than_the_world_shows_it_whole() {
     let mut view = View::new(&FIRST, [8000, 1000]);
+    view.follow([-1600.0, 1000.0]);
     assert_eq!(first(&view), Spot { column: 0, row: 2, origin: [1600, -232] });
     view.resize([1600, 4000]);
     assert_eq!(view.size(), [1600, 4000]);
+    assert_eq!(view.shown(), [1600.0, 4000.0]);
+    view.follow([0.0, -1000.0]);
     assert_eq!(first(&view), Spot { column: 0, row: 0, origin: [0, 1000] });
   }
 }
