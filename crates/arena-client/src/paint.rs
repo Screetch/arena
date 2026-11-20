@@ -1,18 +1,19 @@
-//! The drawing of the map with wgpu.
+//! The drawing of the cells with wgpu.
 //!
-//! Each tile of cells is drawn once into a texture of its own, and each frame places on the target
-//! the tiles that the view shows. The colours blend in sRGB as they are stored, with no
-//! conversion to linear light.
+//! The glyphs of a patch of cells are drawn into a texture of their own: each tile of the map
+//! once, and the figure and its effects at each frame. Each frame then places on the target the
+//! textures that the view shows. The colours blend in sRGB as they are stored, with no conversion
+//! to linear light.
 
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::cells::{BACK, Glyph, Grid, RAMP, TILE};
+use crate::cells::{BACK, Glyph, RAMP};
 use crate::font::Glyphs;
 
-/// The glyph of one cell, as the shader of the tiles reads it.
+/// The glyph of one cell, as the shader of the patches reads it.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Mark {
@@ -24,21 +25,37 @@ struct Mark {
   fill_opacity: f32,
 }
 
-/// The pipelines that draw the tiles and place them on a target, with the glyphs of their cells.
+/// The pipelines that draw the patches of cells and place them on a target, with the glyphs of
+/// their cells.
 pub struct Painter<G> {
   device: wgpu::Device,
   queue: wgpu::Queue,
   glyphs: G,
   bake: wgpu::RenderPipeline,
+  blur: wgpu::RenderPipeline,
   show: wgpu::RenderPipeline,
-  atlases: HashMap<u32, wgpu::BindGroup>,
+  atlases: HashMap<[u32; 2], wgpu::TextureView>,
   screen: wgpu::Buffer,
   screen_group: wgpu::BindGroup,
 }
 
-/// A tile of cells, drawn into a texture of 48 by 48 cells, with its colours premultiplied.
+/// A patch of cells, drawn into a texture, with its colours premultiplied.
 pub struct Tile {
+  view: wgpu::TextureView,
+  size: [u32; 2],
   group: wgpu::BindGroup,
+}
+
+/// A patch of cells to draw: its cells in a row and its rows, the size of a cell in pixels, and a
+/// margin of pixels about the cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan {
+  /// The cells in a row and the rows.
+  pub cells: [u32; 2],
+  /// The width and the height of a cell, in pixels.
+  pub cell: [u32; 2],
+  /// The pixels of the texture about the cells, on each side.
+  pub margin: u32,
 }
 
 impl<G: Glyphs> Painter<G> {
@@ -50,9 +67,11 @@ impl<G: Glyphs> Painter<G> {
     format: wgpu::TextureFormat,
     glyphs: G,
   ) -> Self {
-    let bake =
-      pipeline(&device, include_str!("bake.wgsl"), wgpu::TextureFormat::Rgba8Unorm, &MARKS);
-    let show = pipeline(&device, include_str!("show.wgsl"), format, &SPOTS);
+    let blend = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+    let texture = wgpu::TextureFormat::Rgba8Unorm;
+    let bake = pipeline(&device, include_str!("bake.wgsl"), texture, &[MARKS], blend);
+    let blur = pipeline(&device, include_str!("blur.wgsl"), texture, &[], None);
+    let show = pipeline(&device, include_str!("show.wgsl"), format, &[SPOTS], blend);
     let screen = device.create_buffer(&wgpu::BufferDescriptor {
       label: Some("screen"),
       size: 16,
@@ -64,27 +83,32 @@ impl<G: Glyphs> Painter<G> {
       layout: &show.get_bind_group_layout(0),
       entries: &[wgpu::BindGroupEntry { binding: 0, resource: screen.as_entire_binding() }],
     });
-    Self { device, queue, glyphs, bake, show, atlases: HashMap::new(), screen, screen_group }
+    let atlases = HashMap::new();
+    Self { device, queue, glyphs, bake, blur, show, atlases, screen, screen_group }
   }
 
-  /// Draws the glyphs of one tile of `grid` into a texture.
-  pub fn bake(&mut self, grid: Grid, glyphs: &[Glyph]) -> Tile {
-    let cell = grid.cell();
-    let side = cell * u32::from(TILE);
-    let atlas = self.atlases.entry(cell).or_insert_with(|| {
-      atlas(&self.device, &self.queue, &self.glyphs, &self.bake.get_bind_group_layout(0), cell)
+  /// Draws the glyphs of a patch of `plan` into a texture.
+  pub fn bake(&mut self, plan: Plan, glyphs: &[Glyph]) -> Tile {
+    let size = [0, 1].map(|at| plan.cells[at] * plan.cell[at] + 2 * plan.margin);
+    let atlas = self
+      .atlases
+      .entry(plan.cell)
+      .or_insert_with(|| atlas(&self.device, &self.queue, &self.glyphs, plan.cell));
+    let sizes = [plan.cell[0], plan.cell[1], size[0], size[1], plan.margin, plan.margin, 0, 0];
+    let sizes = self.device.create_buffer_init(&BufferInitDescriptor {
+      label: Some("sizes"),
+      contents: bytemuck::cast_slice(&sizes.map(float)),
+      usage: wgpu::BufferUsages::UNIFORM,
     });
-    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-      label: Some("tile"),
-      size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 },
-      mip_level_count: 1,
-      sample_count: 1,
-      dimension: wgpu::TextureDimension::D2,
-      format: wgpu::TextureFormat::Rgba8Unorm,
-      usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-      view_formats: &[],
+    let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("patch"),
+      layout: &self.bake.get_bind_group_layout(0),
+      entries: &[
+        wgpu::BindGroupEntry { binding: 0, resource: sizes.as_entire_binding() },
+        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(atlas) },
+      ],
     });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let view = self.texture(size);
     let mut encoder =
       self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     {
@@ -101,21 +125,25 @@ impl<G: Glyphs> Painter<G> {
           usage: wgpu::BufferUsages::VERTEX,
         });
         pass.set_pipeline(&self.bake);
-        pass.set_bind_group(0, &*atlas, &[]);
+        pass.set_bind_group(0, &group, &[]);
         pass.set_vertex_buffer(0, marks.slice(..));
         pass.draw(0..4, 0..u32::try_from(glyphs.len()).unwrap_or(u32::MAX));
       }
     }
     self.queue.submit([encoder.finish()]);
-    let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-      label: Some("tile"),
-      layout: &self.show.get_bind_group_layout(1),
-      entries: &[wgpu::BindGroupEntry {
-        binding: 0,
-        resource: wgpu::BindingResource::TextureView(&view),
-      }],
-    });
-    Tile { group }
+    self.tile(view, size)
+  }
+
+  /// The glow of `tile`: its cover, blurred by a Gaussian of `sigma` pixels, in `colour`, its red,
+  /// green, blue and opacity from 0 to 1.
+  pub fn glow(&self, tile: &Tile, sigma: f64, colour: [f64; 4]) -> Tile {
+    let across = self.texture(tile.size);
+    self.blurred(&tile.view, &across, [1.0, 0.0], sigma, [1.0; 4]);
+    let glow = self.texture(tile.size);
+    let [red, green, blue, opacity] = colour;
+    let shade = [red * opacity, green * opacity, blue * opacity, opacity];
+    self.blurred(&across, &glow, [0.0, 1.0], sigma, shade);
+    self.tile(glow, tile.size)
   }
 
   /// Fills the target of `size` pixels with the colour behind the map, and places each tile with
@@ -148,6 +176,73 @@ impl<G: Glyphs> Painter<G> {
           pass.draw(0..4, index..index + 1);
         }
       }
+    }
+    self.queue.submit([encoder.finish()]);
+  }
+
+  fn texture(&self, size: [u32; 2]) -> wgpu::TextureView {
+    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+      label: Some("patch"),
+      size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+      mip_level_count: 1,
+      sample_count: 1,
+      dimension: wgpu::TextureDimension::D2,
+      format: wgpu::TextureFormat::Rgba8Unorm,
+      usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+      view_formats: &[],
+    });
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+  }
+
+  fn tile(&self, view: wgpu::TextureView, size: [u32; 2]) -> Tile {
+    let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("tile"),
+      layout: &self.show.get_bind_group_layout(1),
+      entries: &[wgpu::BindGroupEntry {
+        binding: 0,
+        resource: wgpu::BindingResource::TextureView(&view),
+      }],
+    });
+    Tile { view, size, group }
+  }
+
+  /// Draws on `target` the cover of `source` blurred along `step` by a Gaussian of `sigma`
+  /// pixels, in the premultiplied `colour`.
+  fn blurred(
+    &self,
+    source: &wgpu::TextureView,
+    target: &wgpu::TextureView,
+    step: [f32; 2],
+    sigma: f64,
+    colour: [f64; 4],
+  ) {
+    let reach = (3.0 * sigma).ceil();
+    let values = [step[0], step[1], single(sigma), single(reach)];
+    let blur: Vec<f32> = values.into_iter().chain(colour.map(single)).collect();
+    let blur = self.device.create_buffer_init(&BufferInitDescriptor {
+      label: Some("blur"),
+      contents: bytemuck::cast_slice(&blur),
+      usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+      label: Some("blur"),
+      layout: &self.blur.get_bind_group_layout(0),
+      entries: &[
+        wgpu::BindGroupEntry { binding: 0, resource: blur.as_entire_binding() },
+        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(source) },
+      ],
+    });
+    let mut encoder =
+      self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    {
+      let attachments = cleared(target, wgpu::Color::TRANSPARENT);
+      let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        color_attachments: &attachments,
+        ..wgpu::RenderPassDescriptor::default()
+      });
+      pass.set_pipeline(&self.blur);
+      pass.set_bind_group(0, &group, &[]);
+      pass.draw(0..4, 0..1);
     }
     self.queue.submit([encoder.finish()]);
   }
@@ -186,12 +281,14 @@ fn pipeline(
   device: &wgpu::Device,
   source: &str,
   format: wgpu::TextureFormat,
-  marks: &wgpu::VertexBufferLayout<'_>,
+  buffers: &[wgpu::VertexBufferLayout<'_>],
+  blend: Option<wgpu::BlendState>,
 ) -> wgpu::RenderPipeline {
   let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
     label: None,
     source: wgpu::ShaderSource::Wgsl(source.into()),
   });
+  let buffers: Vec<_> = buffers.iter().cloned().map(Some).collect();
   device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
     label: None,
     layout: None,
@@ -199,7 +296,7 @@ fn pipeline(
       module: &module,
       entry_point: None,
       compilation_options: wgpu::PipelineCompilationOptions::default(),
-      buffers: &[Some(marks.clone())],
+      buffers: &buffers,
     },
     primitive: wgpu::PrimitiveState {
       topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -213,7 +310,7 @@ fn pipeline(
       compilation_options: wgpu::PipelineCompilationOptions::default(),
       targets: &[Some(wgpu::ColorTargetState {
         format,
-        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+        blend,
         write_mask: wgpu::ColorWrites::ALL,
       })],
     }),
@@ -234,29 +331,27 @@ fn cleared(
   })]
 }
 
-/// The glyph of each character of the ramp side by side, each in a square of one cell, with the
-/// sizes that the shader of the tiles reads.
+/// The glyph of each character of the ramp side by side, each in one cell of `cell` pixels.
 fn atlas(
   device: &wgpu::Device,
   queue: &wgpu::Queue,
   glyphs: &impl Glyphs,
-  layout: &wgpu::BindGroupLayout,
-  cell: u32,
-) -> wgpu::BindGroup {
+  cell: [u32; 2],
+) -> wgpu::TextureView {
+  let [width, height] = cell.map(|side| side as usize);
   let slots = u32::from(u8::try_from(RAMP.len()).unwrap_or(u8::MAX));
-  let width = slots * cell;
   let masks: Vec<Vec<u8>> = RAMP.iter().map(|&character| glyphs.draw(character, cell)).collect();
-  let mut bytes = Vec::with_capacity((width * cell) as usize);
-  for row in 0..cell as usize {
+  let mut bytes = Vec::with_capacity(masks.len() * width * height);
+  for row in 0..height {
     for mask in &masks {
-      bytes.extend_from_slice(&mask[row * cell as usize..(row + 1) * cell as usize]);
+      bytes.extend_from_slice(&mask[row * width..(row + 1) * width]);
     }
   }
   let texture = device.create_texture_with_data(
     queue,
     &wgpu::TextureDescriptor {
       label: Some("atlas"),
-      size: wgpu::Extent3d { width, height: cell, depth_or_array_layers: 1 },
+      size: wgpu::Extent3d { width: slots * cell[0], height: cell[1], depth_or_array_layers: 1 },
       mip_level_count: 1,
       sample_count: 1,
       dimension: wgpu::TextureDimension::D2,
@@ -267,23 +362,10 @@ fn atlas(
     wgpu::util::TextureDataOrder::LayerMajor,
     &bytes,
   );
-  let sizes = device.create_buffer_init(&BufferInitDescriptor {
-    label: Some("sizes"),
-    contents: bytemuck::cast_slice(&[float(cell), float(cell * u32::from(TILE)), 0.0, 0.0]),
-    usage: wgpu::BufferUsages::UNIFORM,
-  });
-  let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-  device.create_bind_group(&wgpu::BindGroupDescriptor {
-    label: Some("atlas"),
-    layout,
-    entries: &[
-      wgpu::BindGroupEntry { binding: 0, resource: sizes.as_entire_binding() },
-      wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-    ],
-  })
+  texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-#[expect(clippy::cast_possible_truncation, reason = "the shader reads each opacity in f32")]
+#[expect(clippy::cast_possible_truncation, reason = "the shaders read their numbers in f32")]
 fn single(value: f64) -> f32 {
   value as f32
 }
@@ -300,15 +382,20 @@ fn float(pixels: u32) -> f32 {
 mod tests {
   use arena_sim::map::FIRST;
 
-  use crate::cells::Grid;
+  use super::Plan;
+  use crate::cells::{Grid, TILE};
   use crate::gpu::Gpu;
+
+  fn tile(grid: Grid) -> Plan {
+    Plan { cells: [u32::from(TILE); 2], cell: [grid.cell(); 2], margin: 0 }
+  }
 
   #[test]
   fn each_cell_shows_its_ink_over_its_fill_at_its_opacity_over_the_back() {
     let gpu = Gpu::held();
     let mut painter = gpu.painter();
     let grid = Grid::new(2.0);
-    let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
+    let tile = painter.bake(tile(grid), &grid.tile(&FIRST, 0, 2));
     let pixels =
       gpu.painted([768, 768], |target| painter.paint(target, [768, 768], &[(&tile, [0, 0])]));
     let at = |x: u32, y: u32| pixels[(y * 768 + x) as usize];
@@ -324,7 +411,7 @@ mod tests {
     let gpu = Gpu::held();
     let mut painter = gpu.painter();
     let grid = Grid::new(1.0);
-    let tile = painter.bake(grid, &grid.tile(&FIRST, 0, 2));
+    let tile = painter.bake(tile(grid), &grid.tile(&FIRST, 0, 2));
     let pixels =
       gpu.painted([64, 64], |target| painter.paint(target, [64, 64], &[(&tile, [-8, 16])]));
     let at = |x: u32, y: u32| pixels[(y * 64 + x) as usize];
@@ -341,7 +428,7 @@ mod tests {
     let grid = Grid::new(1.0);
     let glyphs = grid.tile(&FIRST, 2, 0);
     assert_eq!(glyphs, []);
-    let empty = painter.bake(grid, &glyphs);
+    let empty = painter.bake(tile(grid), &glyphs);
     let back = vec![[43, 47, 58, 255]; 16 * 16];
     assert_eq!(
       gpu.painted([16, 16], |target| painter.paint(target, [16, 16], &[(&empty, [0, 0])])),

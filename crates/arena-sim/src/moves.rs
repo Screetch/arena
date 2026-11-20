@@ -346,6 +346,11 @@ impl<C: Chance> World<C> {
     self.camera
   }
 
+  /// Gives the camera a view of `view` units of the map.
+  pub fn resize(&mut self, view: [f64; 2]) {
+    self.view = view;
+  }
+
   /// Moves the pointer to `pointer`, in units of the map from the corner of the camera. At each
   /// step, the fighter aims at the point of the map under it.
   pub fn look(&mut self, pointer: [f64; 2]) {
