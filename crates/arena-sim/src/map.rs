@@ -77,6 +77,14 @@ pub const FIRST: Map = Map {
   ramps: &[Ramp { from: Point { x: 3800, y: 1800 }, to: Point { x: 4200, y: 1620 } }],
 };
 
+impl Map {
+  /// Says whether a block or a slope of the map holds the point (x, y).
+  pub fn hit(&self, x: f64, y: f64) -> bool {
+    self.blocks.iter().any(|block| block.contains(x, y))
+      || self.ramps.iter().any(|ramp| ramp.contains(x, y))
+  }
+}
+
 impl Block {
   /// Says whether the block holds the point (x, y).
   pub fn contains(&self, x: f64, y: f64) -> bool {
@@ -137,6 +145,12 @@ mod tests {
     assert!(!ramp.contains(4000.0, 1800.0));
     assert!(!ramp.contains(3799.9, 1799.0));
     assert!(!ramp.contains(4200.0, 1700.0));
+  }
+
+  #[test]
+  fn a_point_is_solid_where_a_block_or_the_slope_holds_it() {
+    assert!(FIRST.hit(700.0, 1650.0) && FIRST.hit(4000.0, 1750.0));
+    assert!(!FIRST.hit(700.0, 1700.0) && !FIRST.hit(4000.0, 1700.0));
   }
 
   #[test]

@@ -5,3 +5,4 @@
 
 pub mod clip;
 pub mod map;
+pub mod moves;
