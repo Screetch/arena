@@ -220,11 +220,14 @@ fix what your change broke, and report what was broken before.
 - `python3 script/title.py "<title>"`: check the title of a pull request, as the check `the title` does.
 - `sh script/web.sh [serve | test]`: build the web client into `target/web`, with its page from
   `crates/arena-client/web/`, in a slot of `script/build-slot.sh`. With `serve`, the script then serves it on
-  `http://127.0.0.1:8000`, or on the port that `PORT` gives, and opens no browser. With `test`, it runs the tests of
-  `crates/arena-client/tests/` in place of the build, in a headless browser, through the driver that `CHROMEDRIVER`
-  or `GECKODRIVER` names, else the one on the `PATH`. It needs the commands `wasm-bindgen` and
-  `wasm-bindgen-test-runner` at the version of the crate in `Cargo.lock`, which `sh script/web.sh version` prints:
-  install them with `cargo install wasm-bindgen-cli --version <version> --locked`. The lints of the web client are
+  `http://127.0.0.1:8000`, or on the port that `PORT` gives, and opens no browser. To play the page locally, a person
+  runs `sh script/web.sh serve` and opens that address in a browser: the keys, the mouse and the wheel play as in the
+  native client. With `test`, it runs the tests of `crates/arena-client/tests/` in place of the build, in a headless
+  browser, through the driver that `CHROMEDRIVER` or `GECKODRIVER` names, else the one on the `PATH`. The tests draw on
+  WebGL2, which Chrome gives with no GPU only through the options of `crates/arena-client/webdriver.json`. It needs
+  the commands `wasm-bindgen` and `wasm-bindgen-test-runner` at the version of the crate in `Cargo.lock`, which
+  `sh script/web.sh version` prints: install them with `cargo install wasm-bindgen-cli --version <version> --locked`.
+  The lints of the web client are
   `cargo clippy -p arena-client --target wasm32-unknown-unknown --lib --bins --test canvas -- -D warnings`.
 
 ## The gates and the releases
