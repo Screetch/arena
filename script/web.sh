@@ -5,7 +5,8 @@
 # wasm-bindgen that Cargo.lock holds: the command wasm-bindgen must have that version, since its glue and the crate
 # agree only then. With test, it runs the tests of crates/arena-client/tests in place of the build, in a headless
 # browser, with wasm-bindgen-test-runner, which comes with wasm-bindgen, through the driver that CHROMEDRIVER or
-# GECKODRIVER names, else the one on the PATH.
+# GECKODRIVER names, else the one on the PATH. A runner has no GPU, so crates/arena-client/webdriver.json lets Chrome
+# draw WebGL2 with its software adapter, SwiftShader, which it gives to no page by default.
 # Usage: sh script/web.sh [serve | test | version]
 top=$(git rev-parse --show-toplevel) || exit 1
 cd "$top" || exit 1
@@ -27,6 +28,7 @@ if [ "$(wasm-bindgen --version 2>/dev/null)" != "wasm-bindgen $version" ]; then
 fi
 if [ "$1" = test ]; then
   export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
+  export WASM_BINDGEN_TEST_WEBDRIVER_JSON="$top/crates/arena-client/webdriver.json"
   exec sh script/build-slot.sh cargo test --locked -p arena-client --target wasm32-unknown-unknown --test canvas
 fi
 sh script/build-slot.sh cargo build --locked --release -p arena-client --bin arena-client \
