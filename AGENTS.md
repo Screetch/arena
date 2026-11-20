@@ -19,8 +19,10 @@ The shape of the game is fixed, and each crate serves it:
 - The simulation, with the map, the physics, the classes, the weapons, the projectiles and the modes, runs in 2D in a
   deterministic crate that the server and the client share, `crates/arena-sim`, which depends on no window, no graphics
   adapter and no network. So a prediction of the client and the decision of the server come from the same code.
-- The collisions of the simulation run on rapier2d, with its feature `enhanced-determinism`, so that the same steps
-  give the same bodies on each system.
+- The collisions of the simulation are tests of points against the map: a point is solid when a block or the ramp
+  covers it. The moves probe a few points around a body at each step, with the numbers truncated where the rules
+  truncate them, so that the same steps give the same state on each machine. No physics engine for now: a later item
+  may add one for free bodies, never for the fighters.
 - The client opens its window with winit and draws with wgpu.
 - The same client runs in a browser, built for WebAssembly: its window is a canvas of the page, wgpu draws there with
   WebGPU, else with WebGL2, and the browser draws its glyphs from the fonts of the system. Only the start, the window
