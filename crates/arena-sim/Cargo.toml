@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The shared simulation of arena, which the server and each client run: today the map of the world and the clips of the figure."
+description = "The shared simulation of arena, which the server and each client run: today the map of the world, the clips of the figure and its moves."
+
+[dependencies]
+libm = "0.2"
 
 [lints]
 workspace = true

@@ -2,9 +2,9 @@
 
 arena is a multiplayer game of arenas in 2D, in Rust, at its start. The workspace of cargo, `Cargo.toml`, keeps each
 crate in `crates/`, and the crates of the game come one by one, each in a pull request. Today the workspace holds two
-crates: `crates/arena-sim`, the shared simulation, which holds the map of the world and the clips of the figure and of
-its effects, and `crates/arena-client`, the client, which draws the map as characters. Claude Code reads this file
-through `CLAUDE.md`, which holds only `@AGENTS.md`.
+crates: `crates/arena-sim`, the shared simulation, which holds the map of the world, the clips of the figure and of its
+effects, and the moves of a fighter, and `crates/arena-client`, the client, which draws the map as characters. Claude
+Code reads this file through `CLAUDE.md`, which holds only `@AGENTS.md`.
 
 The shape of the game is fixed, and each crate serves it:
 

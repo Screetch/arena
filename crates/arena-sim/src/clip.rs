@@ -31,6 +31,126 @@ pub enum At<'a> {
   Frame(u16),
 }
 
+/// The effects of the book of effects: the shots of the 9 weapons, the specials of the 3 roles,
+/// the impact, the parry, and the drops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+  /// The shot of the weapon 8.
+  Lightning,
+  /// The shot of the weapon 7.
+  Fireball,
+  /// The shot of the weapon 9.
+  Shockwave,
+  /// The shot of the weapon 1.
+  Arrow,
+  /// The shot of the weapon 2.
+  Slash,
+  /// The shot of the weapon 4.
+  Sweep,
+  /// The shot of the weapon 5.
+  Spear,
+  /// The shot of the weapon 3, which bursts into smoke where it lands.
+  SmokeBomb,
+  /// The shot of the weapon 6.
+  ShieldBash,
+  /// The jump in the air of the role 2.
+  AirJump,
+  /// The trail of the warp of the role 1.
+  WarpTrail,
+  /// The thrust of the role 3, and each end of the warp of the role 1.
+  Thrust,
+  /// An impact, with its variants as labels.
+  Impact,
+  /// A parry.
+  Parry,
+  /// A drop of blood, and its stain on the ground.
+  Splash,
+  /// A drop of fire, and its stain on the ground.
+  Embers,
+}
+
+impl Effect {
+  /// Each effect, in the order of its declaration.
+  pub const ALL: [Self; 16] = [
+    Self::Lightning,
+    Self::Fireball,
+    Self::Shockwave,
+    Self::Arrow,
+    Self::Slash,
+    Self::Sweep,
+    Self::Spear,
+    Self::SmokeBomb,
+    Self::ShieldBash,
+    Self::AirJump,
+    Self::WarpTrail,
+    Self::Thrust,
+    Self::Impact,
+    Self::Parry,
+    Self::Splash,
+    Self::Embers,
+  ];
+
+  /// The sprite of the effect in the book of effects.
+  pub fn id(self) -> u16 {
+    match self {
+      Self::Lightning => 179,
+      Self::Fireball => 192,
+      Self::Shockwave => 246,
+      Self::Arrow => 198,
+      Self::Slash => 182,
+      Self::Sweep => 172,
+      Self::Spear => 185,
+      Self::SmokeBomb => 251,
+      Self::ShieldBash => 248,
+      Self::AirJump => 242,
+      Self::WarpTrail => 296,
+      Self::Thrust => 243,
+      Self::Impact => 169,
+      Self::Parry => 131,
+      Self::Splash => 234,
+      Self::Embers => 227,
+    }
+  }
+
+  /// The clip of the effect, on its first frame.
+  pub fn clip(self) -> Clip {
+    Clip::new(Book::Effects, self.id())
+  }
+}
+
+/// The clip of the figure in the book of the figure.
+pub const FIGURE: u16 = 114;
+
+impl Clip {
+  /// The figure, dressed: its flag hidden, its weapon placed by its own fields at its hand, and
+  /// its body playing from the label `idle`.
+  #[expect(clippy::expect_used, reason = "the clip of the figure holds its flag, body and weapon")]
+  pub fn figure() -> Self {
+    let mut figure = Self::new(Book::Figure, FIGURE);
+    figure.named_mut("flag").expect("the figure holds its flag").visible = false;
+    let weapon = figure.named_mut("weapon").expect("the figure holds its weapon");
+    (weapon.free, weapon.x, weapon.y) = (true, 0.65, -57.0);
+    figure.named_mut("spr").expect("the figure holds its body").play_from(At::Label("idle"));
+    figure
+  }
+
+  /// Stops the body of the figure at the frame `body`, from 1 to 7, and shows the weapon
+  /// `weapon` alone, from 1 to 9, on its first frame, or no weapon for 0.
+  #[expect(clippy::expect_used, reason = "the clip of the figure holds its body and its weapon")]
+  pub fn wear(&mut self, body: u16, weapon: u8) {
+    let spr = self.named_mut("spr").expect("the figure holds its body");
+    spr.named_mut("body").expect("each frame of the body holds its role").stop_at(At::Frame(body));
+    let weapons = self.named_mut("weapon").expect("the figure holds its weapon");
+    for one in 1..=9 {
+      let shown = weapons.named_mut(&format!("w{one}")).expect("the figure holds each weapon");
+      shown.visible = one == weapon;
+      if one == weapon {
+        shown.stop_at(At::Frame(1));
+      }
+    }
+  }
+}
+
 /// Where a frame puts a child of its clip.
 #[derive(Debug, PartialEq)]
 pub struct Place {
@@ -67,7 +187,7 @@ pub struct Shadow {
 }
 
 /// A clip of a book, and the clips that its frame places.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[expect(
   clippy::struct_excessive_bools,
   reason = "the timeline, its scripts, its owner and its parent each set one flag of a clip apart"
@@ -101,7 +221,7 @@ pub struct Clip {
 }
 
 /// A child of a clip, with the place that the frame of the clip gives it.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Part {
   /// The place of the child.
   pub place: &'static Place,
@@ -123,16 +243,16 @@ enum Op {
   Go { frame: u16, play: bool },
 }
 
-static FIGURE: LazyLock<HashMap<u16, Sprite>> =
+static FIGURE_SPRITES: LazyLock<HashMap<u16, Sprite>> =
   LazyLock::new(|| sprites(include_str!("../data/figure.txt")));
-static EFFECTS: LazyLock<HashMap<u16, Sprite>> =
+static EFFECT_SPRITES: LazyLock<HashMap<u16, Sprite>> =
   LazyLock::new(|| sprites(include_str!("../data/effects.txt")));
 
 impl Book {
   fn sprite(self, id: u16) -> Option<&'static Sprite> {
     let sprites: &'static HashMap<u16, Sprite> = match self {
-      Self::Figure => &FIGURE,
-      Self::Effects => &EFFECTS,
+      Self::Figure => &FIGURE_SPRITES,
+      Self::Effects => &EFFECT_SPRITES,
     };
     sprites.get(&id)
   }
@@ -428,7 +548,7 @@ fn number<T: FromStr<Err: Debug>>(words: &mut SplitAsciiWhitespace<'_>) -> T {
 
 #[cfg(test)]
 mod tests {
-  use super::{At, Book, Clip};
+  use super::{At, Book, Clip, Effect};
 
   const FIGURE: u16 = 114;
 
@@ -539,6 +659,12 @@ mod tests {
     let mut expected: Vec<u16> = (3..=10).collect();
     expected.extend([1; 12]);
     assert_eq!(played(&mut figure, 20, frame), expected);
+  }
+
+  #[test]
+  fn each_effect_plays_its_own_timeline() {
+    let frames = Effect::ALL.map(|effect| effect.clip().frames());
+    assert_eq!(frames, [5, 20, 15, 29, 2, 2, 3, 16, 1, 16, 14, 12, 5, 11, 15, 9]);
   }
 
   #[test]
