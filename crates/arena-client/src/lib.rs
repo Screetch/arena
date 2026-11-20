@@ -8,5 +8,8 @@ pub mod font;
 #[cfg(test)]
 mod gpu;
 pub mod paint;
+mod sample;
 pub mod screen;
+mod shapes;
+pub mod sprites;
 pub mod view;

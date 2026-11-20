@@ -79,6 +79,7 @@ dependencies = [
  "arena-sim",
  "bytemuck",
  "fontdb",
+ "libm",
  "pollster",
  "thiserror 2.0.21",
  "wasm-bindgen",
