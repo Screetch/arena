@@ -10,9 +10,10 @@
 
 use super::shot::{Kind, Launch};
 use super::{
-  Burst, Drop, Drops, Fighter, Id, Intents, Key, START, Seeded, Shot, Spawn, Spray, Start, World,
+  Burst, Drop, Drops, Fighter, Id, Intents, Key, START, Seeded, Shot, Spawn, Spray, Start, State,
+  World,
 };
-use crate::clip::Clip;
+use crate::clip::{Clip, Effect};
 use crate::map::{Block, FIRST, Map};
 
 /// The fighter of a scene.
@@ -341,6 +342,42 @@ fn a_world_that_starts_what_a_step_lists_holds_the_same_effects_and_drops() {
     assert_eq!(shown.drops(), source.drops(), "step {step}");
   }
   assert!(kinds.iter().all(|&count| count > 0), "{kinds:?}");
+}
+
+fn fighter(state: &mut State<Seeded>) -> &mut Fighter {
+  state.fighters.get_mut(&ME).expect("the fighter 1 stands")
+}
+
+/// A state travels whole, and a state with a fighter or a shot out of its range does not.
+#[test]
+fn a_state_travels_whole_and_not_with_a_fighter_or_a_shot_out_of_its_range() {
+  let decoded = |state: &State<Seeded>| {
+    postcard::from_bytes::<State<Seeded>>(&postcard::to_allocvec(state).expect("a state encodes"))
+  };
+  let mut world = World::new(FIRST, Seeded::new(5));
+  for step in 0..60 {
+    brawl_step(&mut world, step);
+  }
+  let state = world.state().clone();
+  assert!(!state.shots.is_empty());
+  assert_eq!(decoded(&state), Ok(state.clone()));
+  let broken: [fn(&mut State<Seeded>); 7] = [
+    |state| fighter(state).role = 4,
+    |state| fighter(state).weapon = 0,
+    |state| fighter(state).slot = 4,
+    |state| fighter(state).figure = Effect::Arrow.clip(),
+    |state| fighter(state).intents.aim = [f64::NAN, 0.0],
+    |state| fighter(state).intents.aim = [0.0, f64::INFINITY],
+    |state| {
+      let by = state.shots[0].by;
+      state.fighters.remove(&by);
+    },
+  ];
+  for (at, broke) in broken.iter().enumerate() {
+    let mut state = state.clone();
+    broke(&mut state);
+    assert_eq!(decoded(&state), Err(postcard::Error::SerdeDeCustom), "case {at}");
+  }
 }
 
 #[test]

@@ -3,13 +3,14 @@
 use std::f64::consts::PI;
 
 use libm::{atan2, cos, sin};
+use serde::{Deserialize, Serialize};
 
 use super::{Chance, Id, RAD, round};
 use crate::clip::{At, Clip, Effect};
 use crate::map::Map;
 
 /// A shot of a weapon in flight, or stuck in a solid.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Shot {
   /// The effect of the shot.
   pub effect: Effect,
@@ -57,7 +58,7 @@ pub(super) enum Recoil {
   Stun,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum Flight {
   /// It fades in 5 steps where it struck.
   Flash { left: f64 },

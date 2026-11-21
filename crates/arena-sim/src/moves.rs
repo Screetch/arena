@@ -16,12 +16,14 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
 use libm::{atan2, cos, sin};
+use serde::de::{self, Unexpected};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub use drops::{Burst, Drop, Drops, Spray};
 pub use shot::Shot;
 use shot::{Kind, Launch, Recoil};
 
-use crate::clip::{At, Clip, Effect};
+use crate::clip::{At, Book, Clip, Effect, FIGURE};
 use crate::map::Map;
 
 /// The point of the map where a fighter starts, at its feet.
@@ -39,7 +41,7 @@ pub trait Chance {
 }
 
 /// A source of chance from a seed, which gives the same numbers on each machine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Seeded(u32);
 
 impl Seeded {
@@ -60,7 +62,7 @@ impl Chance for Seeded {
 }
 
 /// The id of a fighter in a world, which the caller gives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Id(pub u32);
 
 /// A key that moves a fighter.
@@ -79,12 +81,13 @@ pub enum Key {
 }
 
 /// What a fighter asks for each step, until it asks again.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Intents {
   /// The keys that it holds, each at the place of its [`Key`]. The first step that sees
   /// [`Key::Special`] held plays the special of the role.
   pub keys: [bool; 5],
-  /// The point of the map that it aims at.
+  /// The point of the map that it aims at. A point whose numbers are not finite does not travel.
+  #[serde(deserialize_with = "point")]
   pub aim: [f64; 2],
   /// Says whether the button of the shots is held. A weapon that charges charges while it is held
   /// and throws its shot when it is let go. Another strikes, twice when the press comes soon after
@@ -99,7 +102,7 @@ pub struct Intents {
 }
 
 /// The animation that the moves ask of the body of a fighter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Pose {
   /// Stands.
   Idle,
@@ -139,8 +142,9 @@ impl Pose {
 }
 
 /// A fighter: the state of its moves, in units of the map and in steps, its figure, and the last
-/// intents that it got.
-#[derive(Clone, Debug, PartialEq)]
+/// intents that it got. A fighter whose role, weapon, key of weapon or figure lies out of its range
+/// does not travel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[expect(
   clippy::struct_excessive_bools,
   reason = "the rules set each flag of a fighter at its own point of a step"
@@ -197,10 +201,13 @@ pub struct Fighter {
   /// The pose that a wall, a ledge or a halt forces over its moves.
   pub forced: Option<Pose>,
   /// Its role, from 1 to 3.
+  #[serde(deserialize_with = "role")]
   pub role: u8,
   /// Its weapon, from 1 to 9.
+  #[serde(deserialize_with = "weapon")]
   pub weapon: u8,
   /// The key of its weapon, from 1 to 3.
+  #[serde(deserialize_with = "slot")]
   pub slot: u8,
   /// The charge of a held shot, up to 35.
   pub charge: u32,
@@ -220,6 +227,7 @@ pub struct Fighter {
   pub aim_x: f64,
   /// The y of the point that it aims at.
   pub aim_y: f64,
+  #[serde(deserialize_with = "figure")]
   figure: Clip,
   intents: Intents,
   held: [bool; 5],
@@ -239,7 +247,7 @@ pub struct Spawn {
 
 /// An effect that a fighter starts at `at`, turned by `rotation` and scaled in y by `scale_y`. A
 /// scale of 0, as a warp of no length gives, stands for 1.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Cue {
   /// The effect.
   pub effect: Effect,
@@ -257,7 +265,7 @@ pub struct Cue {
 }
 
 /// What a world started, which [`World::start`] starts the same on another world.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Start {
   /// An effect.
   Effect(Cue),
@@ -270,18 +278,21 @@ pub enum Start {
   },
 }
 
-/// The whole state of a world: its fighters, its shots, its stuck shots, its effects, its drops and
-/// the bursts that its next step throws, its step and its chance. A world on the same map that a
-/// caller makes from a copy gives the same steps as the world that the copy came from, when it gets
-/// the same intents.
-#[derive(Clone, Debug, PartialEq)]
+/// The state that decides the next steps of a world: its fighters, its shots, its stuck shots, the
+/// bursts that its next step throws, its step and its chance. A world on the same map that a caller
+/// makes from a copy gives the same steps, and starts the same, as the world that the copy came
+/// from, when it gets the same intents. The effects and the drops only show the world, and no step
+/// reads them, so they are not part of it: a world starts them again from what each step started,
+/// as [`World::start`] says.
+///
+/// A state travels with serde, each number bit for bit. A state in which a shot in flight has no
+/// fighter does not travel.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct State<C> {
   fighters: BTreeMap<Id, Fighter>,
   chance: C,
-  effects: Vec<Spawn>,
   shots: Vec<Shot>,
   stuck: Vec<Shot>,
-  drops: Drops,
   bursts: Vec<Burst>,
   tick: u64,
   serial: u64,
@@ -292,6 +303,8 @@ pub struct State<C> {
 pub struct World<C> {
   map: Map,
   state: State<C>,
+  effects: Vec<Spawn>,
+  drops: Drops,
   started: Vec<Start>,
 }
 
@@ -479,6 +492,13 @@ impl Cue {
   }
 }
 
+impl<C> State<C> {
+  /// The step of the state: the steps that its world played.
+  pub fn step(&self) -> u64 {
+    self.tick
+  }
+}
+
 impl<C: Chance> World<C> {
   /// A world on `map` with no fighter. `chance` gives the chance of the shots and the seeds of the
   /// bursts of drops.
@@ -486,10 +506,8 @@ impl<C: Chance> World<C> {
     let state = State {
       fighters: BTreeMap::new(),
       chance,
-      effects: Vec::new(),
       shots: Vec::new(),
       stuck: Vec::new(),
-      drops: Drops::default(),
       bursts: Vec::new(),
       tick: 0,
       serial: 0,
@@ -497,9 +515,10 @@ impl<C: Chance> World<C> {
     Self::from_state(map, state)
   }
 
-  /// The world on `map` of `state`, which a world on the same map gave.
+  /// The world on `map` of `state`, which a world on the same map gave, with no effect and no
+  /// drop: [`World::start`] starts them.
   pub fn from_state(map: Map, state: State<C>) -> Self {
-    Self { map, state, started: Vec::new() }
+    Self { map, state, effects: Vec::new(), drops: Drops::default(), started: Vec::new() }
   }
 
   /// The whole state of the world, which a caller can copy and give to [`World::from_state`].
@@ -514,7 +533,7 @@ impl<C: Chance> World<C> {
 
   /// The effects that play, the oldest first.
   pub fn effects(&self) -> &[Spawn] {
-    &self.state.effects
+    &self.effects
   }
 
   /// The shots in flight, the oldest first. A shot that ended stays one step more.
@@ -529,7 +548,7 @@ impl<C: Chance> World<C> {
 
   /// The drops in flight and their stains.
   pub fn drops(&self) -> &Drops {
-    &self.state.drops
+    &self.drops
   }
 
   /// Adds a fighter of `role`, from 1 to 3, with the first weapon of its role, at [`START`]. Says
@@ -572,9 +591,9 @@ impl<C: Chance> World<C> {
         if cue.early {
           spawn.clip.advance();
         }
-        self.state.effects.push(spawn);
+        self.effects.push(spawn);
       }
-      Start::Burst { burst, seed } => self.state.drops.burst(burst, *seed),
+      Start::Burst { burst, seed } => self.drops.burst(burst, *seed),
     }
   }
 
@@ -594,10 +613,10 @@ impl<C: Chance> World<C> {
     for fighter in state.fighters.values_mut() {
       fighter.figure.advance();
     }
-    for spawn in &mut state.effects {
+    for spawn in &mut self.effects {
       spawn.clip.advance();
     }
-    state.effects.retain(|spawn| !spawn.clip.dead);
+    self.effects.retain(|spawn| !spawn.clip.dead);
     for shot in &mut state.shots {
       shot.clip.advance();
       if let Some(twin) = state.stuck.iter_mut().find(|twin| twin.serial == shot.serial) {
@@ -609,17 +628,17 @@ impl<C: Chance> World<C> {
     }
     self.fly();
     self.each(false, |turn| turn.act(tick));
-    self.state.drops.tick(&self.map);
+    self.drops.tick(&self.map);
     for burst in std::mem::take(&mut self.state.bursts) {
       let seed = seed_of(self.state.chance.chance());
-      self.state.drops.burst(&burst, seed);
+      self.drops.burst(&burst, seed);
       self.started.push(Start::Burst { burst, seed });
     }
     std::mem::take(&mut self.started)
   }
 
   fn each(&mut self, early: bool, mut act: impl FnMut(&mut Turn<'_, C>)) {
-    let State { fighters, chance, effects, shots, serial, .. } = &mut self.state;
+    let State { fighters, chance, shots, serial, .. } = &mut self.state;
     for (&id, fighter) in fighters.iter_mut() {
       act(&mut Turn {
         id,
@@ -627,7 +646,7 @@ impl<C: Chance> World<C> {
         fighter,
         map: self.map,
         chance: &mut *chance,
-        effects: &mut *effects,
+        effects: &mut self.effects,
         shots: &mut *shots,
         serial: &mut *serial,
         started: &mut self.started,
@@ -862,6 +881,73 @@ fn shown(figure: &mut Clip, weapon: u8) -> &mut Clip {
 
 fn sitting(figure: &Clip) -> bool {
   body(figure).label() == Some("sit")
+}
+
+/// Reads a role, which lies from 1 to 3.
+fn role<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+  u8::deserialize(deserializer).and_then(|value| ranged(value, 3))
+}
+
+/// Reads a weapon, which lies from 1 to 9.
+fn weapon<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+  u8::deserialize(deserializer).and_then(|value| ranged(value, 9))
+}
+
+/// Reads the key of a weapon, which lies from 1 to 3.
+fn slot<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+  u8::deserialize(deserializer).and_then(|value| ranged(value, 3))
+}
+
+fn ranged<E: de::Error>(value: u8, most: u8) -> Result<u8, E> {
+  if (1..=most).contains(&value) {
+    return Ok(value);
+  }
+  Err(E::invalid_value(Unexpected::Unsigned(value.into()), &"a number from 1 to its most"))
+}
+
+/// Reads the figure of a fighter, which only the clip of the figure can be.
+fn figure<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Clip, D::Error> {
+  Clip::deserialize(deserializer).and_then(|clip| {
+    if (clip.book(), clip.id()) == (Book::Figure, FIGURE) {
+      return Ok(clip);
+    }
+    Err(de::Error::custom(format!("the clip {} of {:?} is no figure", clip.id(), clip.book())))
+  })
+}
+
+/// Reads a point of the map, whose numbers are finite.
+fn point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[f64; 2], D::Error> {
+  <[f64; 2]>::deserialize(deserializer).and_then(|point| {
+    if point.iter().all(|number| number.is_finite()) {
+      return Ok(point);
+    }
+    Err(de::Error::custom(format!("{point:?} is no point of a map")))
+  })
+}
+
+/// The fields of a [`State`] as they travel, before the state checks that each shot in flight
+/// has its fighter.
+#[derive(Deserialize)]
+struct Held<C> {
+  fighters: BTreeMap<Id, Fighter>,
+  chance: C,
+  shots: Vec<Shot>,
+  stuck: Vec<Shot>,
+  bursts: Vec<Burst>,
+  tick: u64,
+  serial: u64,
+}
+
+impl<'de, C: Deserialize<'de>> Deserialize<'de> for State<C> {
+  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    Held::deserialize(deserializer).and_then(|held| {
+      let Held { fighters, chance, shots, stuck, bursts, tick, serial } = held;
+      if let Some(shot) = shots.iter().find(|shot| !fighters.contains_key(&shot.by)) {
+        return Err(de::Error::custom(format!("a shot in flight has no fighter {:?}", shot.by)));
+      }
+      Ok(Self { fighters, chance, shots, stuck, bursts, tick, serial })
+    })
+  }
 }
 
 #[cfg(test)]

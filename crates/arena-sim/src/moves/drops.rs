@@ -3,6 +3,7 @@
 use std::f64::consts::PI;
 
 use libm::{atan2, cos, sin};
+use serde::{Deserialize, Serialize};
 
 use super::{Chance, Id, Seeded};
 use crate::clip::{Clip, Effect};
@@ -13,7 +14,7 @@ const STAMPS: usize = 800;
 const MARGIN: f64 = 120.0;
 
 /// The drops of a spray.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Spray {
   /// Drops of blood.
   Splash,
@@ -23,7 +24,7 @@ pub enum Spray {
 
 /// Drops that a caller throws: `count` drops of `spray` from `at`, about the direction `rotation`,
 /// in degrees from up.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Burst {
   /// The drops.
   pub spray: Spray,

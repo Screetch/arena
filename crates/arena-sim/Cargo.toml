@@ -4,10 +4,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "The shared simulation of arena, which the server and each client run: today the map of the world, the clips of the figure, and the moves of the fighters."
+description = "The shared simulation of arena, which the server and each client run: today the map of the world, the clips of the figure, and the moves of the fighters, each of whose states a codec of serde carries bit for bit."
 
 [dependencies]
 libm = "0.2"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde_json = "1"
 
 [lints]
 workspace = true
