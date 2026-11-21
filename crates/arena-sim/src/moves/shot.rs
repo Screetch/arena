@@ -1,15 +1,15 @@
-//! The shots of the weapons, which fly from the hand of the fighter.
+//! The shots of the weapons, which fly from the hand of a fighter.
 
 use std::f64::consts::PI;
 
 use libm::{atan2, cos, sin};
 
-use super::{Chance, RAD, round};
+use super::{Chance, Id, RAD, round};
 use crate::clip::{At, Clip, Effect};
 use crate::map::Map;
 
 /// A shot of a weapon in flight, or stuck in a solid.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Shot {
   /// The effect of the shot.
   pub effect: Effect,
@@ -17,6 +17,8 @@ pub struct Shot {
   pub clip: Clip,
   /// Says whether it met a solid.
   pub landed: bool,
+  /// The fighter that threw it.
+  pub by: Id,
   pub(super) serial: u64,
   flight: Flight,
 }
@@ -36,7 +38,7 @@ pub(super) enum Kind {
 }
 
 /// Where a weapon throws a shot: from (`x`, `y`) to `rotation`, in degrees from up, with the
-/// charge or the strike `attack`, while the hand of the fighter stands at `hand`.
+/// charge or the strike `attack`, while the hand of the fighter `by` stands at `hand`.
 pub(super) struct Launch {
   pub(super) x: f64,
   pub(super) y: f64,
@@ -44,6 +46,7 @@ pub(super) struct Launch {
   pub(super) attack: u32,
   pub(super) hand: [f64; 2],
   pub(super) serial: u64,
+  pub(super) by: Id,
 }
 
 /// What a shot does to the fighter that throws it.
@@ -54,7 +57,7 @@ pub(super) enum Recoil {
   Stun,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Flight {
   /// It fades in 5 steps where it struck.
   Flash { left: f64 },
@@ -150,7 +153,7 @@ impl Shot {
         Flight::Swing { speed: 3.0, left: 14.0, life: 14.0, xx, yy, rot, turns: true }
       }
     };
-    (Self { effect, clip, landed: false, serial: launch.serial, flight }, recoil)
+    (Self { effect, clip, landed: false, by: launch.by, serial: launch.serial, flight }, recoil)
   }
 
   /// Says whether the shot sticks in the solid that it meets.

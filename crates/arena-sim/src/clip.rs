@@ -187,7 +187,7 @@ pub struct Shadow {
 }
 
 /// A clip of a book, and the clips that its frame places.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[expect(
   clippy::struct_excessive_bools,
   reason = "the timeline, its scripts, its owner and its parent each set one flag of a clip apart"
@@ -221,7 +221,7 @@ pub struct Clip {
 }
 
 /// A child of a clip, with the place that the frame of the clip gives it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Part {
   /// The place of the child.
   pub place: &'static Place,
@@ -431,6 +431,13 @@ impl Clip {
         }
       }
     }
+  }
+}
+
+/// A sprite is one of its book, so two sprites are equal when they are the same one.
+impl PartialEq for Sprite {
+  fn eq(&self, other: &Self) -> bool {
+    std::ptr::eq(self, other)
   }
 }
 

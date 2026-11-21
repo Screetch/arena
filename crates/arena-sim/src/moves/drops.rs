@@ -4,7 +4,7 @@ use std::f64::consts::PI;
 
 use libm::{atan2, cos, sin};
 
-use super::Chance;
+use super::{Chance, Id, Seeded};
 use crate::clip::{Clip, Effect};
 use crate::map::Map;
 
@@ -21,8 +21,24 @@ pub enum Spray {
   Embers,
 }
 
+/// Drops that a caller throws: `count` drops of `spray` from `at`, about the direction `rotation`,
+/// in degrees from up.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Burst {
+  /// The drops.
+  pub spray: Spray,
+  /// The number of drops.
+  pub count: u32,
+  /// The point of the map that throws them.
+  pub at: [f64; 2],
+  /// Their direction, in degrees from up.
+  pub rotation: f64,
+  /// The fighter that throws them, when a fighter throws them.
+  pub by: Option<Id>,
+}
+
 /// A drop in flight, or its stain.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Drop {
   /// The effect of the drop.
   pub effect: Effect,
@@ -30,6 +46,8 @@ pub struct Drop {
   pub clip: Clip,
   /// Says whether it ended: its stain played, or it left the map.
   pub over: bool,
+  /// The fighter that threw it, when a fighter threw it.
+  pub by: Option<Id>,
   rot: f64,
   speed: f64,
   fall: f64,
@@ -37,7 +55,7 @@ pub struct Drop {
 }
 
 /// The drops in flight, at most 600, and the stains, at most 800, the oldest first.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Drops {
   pub(super) live: Vec<Drop>,
   stamps: Vec<Drop>,
@@ -64,21 +82,24 @@ impl Drops {
     &self.stamps
   }
 
-  pub(super) fn make(
-    &mut self,
-    spray: Spray,
-    x: f64,
-    y: f64,
-    rotation: f64,
-    chance: &mut impl Chance,
-  ) {
-    let (effect, last, scale) = spray.look();
+  /// Throws the drops of `burst`, which a [`Seeded`] of `seed` makes.
+  pub(super) fn burst(&mut self, burst: &Burst, seed: u32) {
+    let mut chance = Seeded::new(seed);
+    for _ in 0..burst.count {
+      self.make(burst, &mut chance);
+    }
+  }
+
+  fn make(&mut self, burst: &Burst, chance: &mut Seeded) {
+    let (effect, last, scale) = burst.spray.look();
     let mut clip = effect.clip();
+    let [x, y] = burst.at;
     (clip.x, clip.y) = (x.trunc(), y.trunc());
-    let rot = (rotation.trunc() + (-50.0 + chance.chance() * 100.0) - 90.0) * PI / 180.0;
+    let rot = (burst.rotation.trunc() + (-50.0 + chance.chance() * 100.0) - 90.0) * PI / 180.0;
     clip.scale_x = scale + chance.chance();
     clip.scale_y = scale + chance.chance();
-    self.live.push(Drop { effect, clip, over: false, rot, speed: 10.0, fall: 0.0, last });
+    let by = burst.by;
+    self.live.push(Drop { effect, clip, over: false, by, rot, speed: 10.0, fall: 0.0, last });
     if self.live.len() > LIVE {
       self.live.drain(..self.live.len() - LIVE);
     }

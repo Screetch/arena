@@ -1,4 +1,4 @@
-//! The moves of the fighter in one step: its aim, its fall, its run, its jumps, its walls and its
+//! The moves of a fighter in one step: its aim, its fall, its run, its jumps, its walls and its
 //! ledges, its slope, the probes of its body against the map, and the pose of its body.
 
 use std::f64::consts::PI;
@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 use libm::{atan2, cos, sin};
 
 use super::{
-  At, Chance, Effect, Key, Pose, RAD, REACH, SIDE, World, approach, arm_mut, body, body_mut, round,
+  At, Chance, Effect, Key, Pose, RAD, REACH, SIDE, Turn, approach, arm_mut, body, body_mut, round,
 };
 
 /// What the probes of the sides of the body found: the first row of probes that touches a solid,
@@ -17,7 +17,7 @@ struct Sides {
   right: bool,
 }
 
-impl<C: Chance> World<C> {
+impl<C: Chance> Turn<'_, C> {
   pub(super) fn step(&mut self) {
     self.start();
     if self.fighter.stunned == 0 {
@@ -30,7 +30,7 @@ impl<C: Chance> World<C> {
   }
 
   fn held(&self, key: Key) -> bool {
-    self.held[key as usize]
+    self.fighter.held[key as usize]
   }
 
   fn aim(&mut self) {
@@ -38,9 +38,9 @@ impl<C: Chance> World<C> {
     let t = (fighter.slope + 90.0) * RAD;
     let (dx, dy) =
       (fighter.aim_x - fighter.x - -60.0 * cos(t), fighter.aim_y - fighter.y - -60.0 * sin(t));
-    let flip = body(&self.figure).scale_x;
-    let tilt = self.figure.rotation;
-    let weapon = arm_mut(&mut self.figure);
+    let flip = body(&self.fighter.figure).scale_x;
+    let tilt = self.fighter.figure.rotation;
+    let weapon = arm_mut(&mut self.fighter.figure);
     weapon.y = -57.0;
     weapon.rotation = -tilt + round(180.0 - atan2(dx, dy) * 180.0 / PI);
     weapon.scale_x = flip;
@@ -49,7 +49,7 @@ impl<C: Chance> World<C> {
   /// The start of a step: the stun, the aim, the gravity, the fade of the drift, the ground under
   /// the feet and the kick.
   fn start(&mut self) {
-    let fighter = &mut self.fighter;
+    let fighter = &mut *self.fighter;
     fighter.slope_y *= 0.95;
     if fighter.stunned != 0 {
       fighter.on_ledge = false;
@@ -58,7 +58,7 @@ impl<C: Chance> World<C> {
       fighter.stunned -= 1;
     }
     self.aim();
-    let (map, fighter) = (self.map, &mut self.fighter);
+    let (map, fighter) = (self.map, &mut *self.fighter);
     let ground = map.hit(fighter.x, fighter.y);
     fighter.fall += 1.0;
     fighter.drift_y = (fighter.drift_y * 0.999).trunc();
@@ -95,19 +95,19 @@ impl<C: Chance> World<C> {
   fn steer(&mut self) {
     self.fighter.pose = Pose::Idle;
     if self.fighter.forced.is_none() {
-      body_mut(&mut self.figure).scale_x =
+      body_mut(&mut self.fighter.figure).scale_x =
         if self.fighter.aim_x < self.fighter.x { -1.0 } else { 1.0 };
     }
-    let fighter = &mut self.fighter;
+    let fighter = &mut *self.fighter;
     if (fighter.grounded || fighter.wall != 0) && fighter.jump_wait != 0 {
       fighter.jump_wait -= 1;
     }
-    if self.thrust && fighter.energy > 6.0 && !fighter.thrusted {
+    if fighter.thrust && fighter.energy > 6.0 && !fighter.thrusted {
       fighter.energy -= 6.0;
       fighter.kick_y = -14.0;
       fighter.thrusted = true;
       fighter.brake = 10;
-      let hand = self.hand();
+      let hand = fighter.hand();
       self.spawn(Effect::Thrust, hand, 0.0, 1.0);
     }
     let side = if self.held(Key::Left) { -1 } else { i32::from(self.held(Key::Right)) };
@@ -115,9 +115,9 @@ impl<C: Chance> World<C> {
       self.run(side);
     } else if self.held(Key::Down) && self.fighter.air_time < 5 {
       self.fighter.pose = Pose::Sit;
-      arm_mut(&mut self.figure).y = -30.0;
+      arm_mut(&mut self.fighter.figure).y = -30.0;
     }
-    let (up, fighter) = (self.held(Key::Up), &mut self.fighter);
+    let (up, fighter) = (self.held(Key::Up), &mut *self.fighter);
     if fighter.wall == 0 && fighter.grounded && fighter.jump_wait == 0 && up {
       fighter.grounded = false;
       fighter.fall = (fighter.fall - 18.0 + (fighter.speed_x / 5.0).abs()).trunc();
@@ -135,8 +135,8 @@ impl<C: Chance> World<C> {
   /// hold of a wall ahead.
   #[expect(clippy::float_cmp, reason = "a flip is exactly -1 or 1")]
   fn run(&mut self, side: i32) {
-    let (up, flip) = (self.held(Key::Up), body(&self.figure).scale_x);
-    let fighter = &mut self.fighter;
+    let (up, flip) = (self.held(Key::Up), body(&self.fighter.figure).scale_x);
+    let fighter = &mut *self.fighter;
     let way = f64::from(side);
     let (most, gain) = if fighter.role == 1 { (12.0, 3.0) } else { (10.0, 2.0) };
     if fighter.speed_x * way < most {
@@ -171,9 +171,9 @@ impl<C: Chance> World<C> {
   /// The fade of a run, the pose and the tilt in the air, the brake of the fall, and the angle of
   /// the ground under the feet.
   fn coast(&mut self) {
-    let (map, flip) = (self.map, body(&self.figure).scale_x);
+    let (map, flip) = (self.map, body(&self.fighter.figure).scale_x);
     let still = !self.held(Key::Right) && !self.held(Key::Left);
-    let fighter = &mut self.fighter;
+    let fighter = &mut *self.fighter;
     if still {
       fighter.speed_x = (fighter.speed_x * 0.9).trunc();
     }
@@ -217,7 +217,7 @@ impl<C: Chance> World<C> {
 
   /// The move of the step, cut by the probes of the head, the feet and the sides of the body.
   fn collide(&mut self) -> Sides {
-    let (map, fighter) = (self.map, &mut self.fighter);
+    let (map, fighter) = (self.map, &mut *self.fighter);
     fighter.touching = false;
     fighter.step_x = fighter.speed_x + fighter.drift_x;
     fighter.step_y = fighter.fall + fighter.drift_y;
@@ -278,7 +278,7 @@ impl<C: Chance> World<C> {
       }
     }
     let still = !self.held(Key::Right) && !self.held(Key::Left);
-    let fighter = &mut self.fighter;
+    let fighter = &mut *self.fighter;
     if fighter.touching {
       if still && !fighter.on_ledge {
         fighter.wall = 0;
@@ -300,7 +300,7 @@ impl<C: Chance> World<C> {
     let way = f64::from(side);
     if self.held(key) {
       self.fighter.wall = side;
-      body_mut(&mut self.figure).scale_x = way;
+      body_mut(&mut self.fighter.figure).scale_x = way;
       if matches!(self.fighter.forced, None | Some(Pose::Ledge)) {
         self.fighter.forced = Some(Pose::Hang);
       }
@@ -310,7 +310,7 @@ impl<C: Chance> World<C> {
       (fighter.x + way * REACH * 1.3 + fighter.step_x, fighter.y - 105.0 + fighter.step_y);
     if !self.held(Key::Down) && !self.map.hit(above.0, above.1) {
       self.fighter.wall = side;
-      body_mut(&mut self.figure).scale_x = way;
+      body_mut(&mut self.fighter.figure).scale_x = way;
       self.fighter.on_ledge = true;
       if matches!(self.fighter.forced, None | Some(Pose::Hang)) {
         self.fighter.forced = Some(Pose::Ledge);
@@ -324,7 +324,7 @@ impl<C: Chance> World<C> {
   fn finish(&mut self) {
     let (map, side) = (self.map, SIDE + 1.0);
     let moving = self.held(Key::Left) || self.held(Key::Right);
-    let fighter = &mut self.fighter;
+    let fighter = &mut *self.fighter;
     let (was_x, was_y) = (fighter.x, fighter.y);
     fighter.x += fighter.step_x;
     fighter.y = fighter.y + fighter.slope_y + fighter.step_y;
@@ -365,9 +365,9 @@ impl<C: Chance> World<C> {
       fighter.forced = Some(Pose::Idle);
     }
     fighter.tilt = approach(fighter.tilt, fighter.tilt_target, 0.2);
-    self.figure.rotation = fighter.tilt;
+    fighter.figure.rotation = fighter.tilt;
     let want = fighter.forced.unwrap_or(fighter.pose).label();
-    let spr = body_mut(&mut self.figure);
+    let spr = body_mut(&mut fighter.figure);
     if spr.label() != Some(want) {
       spr.play_from(At::Label(want));
     }
