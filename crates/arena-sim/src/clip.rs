@@ -6,7 +6,12 @@
 //! of the book, which the client draws.
 
 use std::collections::HashMap;
+use std::fmt;
+use std::marker::PhantomData;
 use std::sync::LazyLock;
+
+use serde::de::{self, DeserializeSeed, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::words::Words;
 
@@ -14,7 +19,7 @@ use crate::words::Words;
 pub const FPS: u32 = 40;
 
 /// A book of sprites and shapes. Each book numbers its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Book {
   /// The figure, its bodies and its weapons.
   Figure,
@@ -33,7 +38,7 @@ pub enum At<'a> {
 
 /// The effects of the book of effects: the shots of the 9 weapons, the specials of the 3 roles,
 /// the impact, the parry, and the drops.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Effect {
   /// The shot of the weapon 8.
   Lightning,
@@ -434,6 +439,190 @@ impl Clip {
   }
 }
 
+/// A clip travels as its book, its id and its [`Body`]. A child travels as its body alone, since
+/// the place that the frame of its parent gives it names its id, and its book is that of its
+/// parent.
+impl Serialize for Clip {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    (self.book, self.id, Body(self)).serialize(serializer)
+  }
+}
+
+impl<'de> Deserialize<'de> for Clip {
+  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    deserializer.deserialize_tuple(3, Root)
+  }
+}
+
+/// The fields of a clip that a frame does not set, in the order of [`PLAIN`].
+const FIELDS: usize = 6;
+
+/// The fields of a new clip: its x, its y, its rotation, its scales in x and in y, and its opacity.
+const PLAIN: [f64; FIELDS] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+
+/// The flags of a clip, each a bit from the lowest: it plays, it is dead, it is visible, and it is
+/// free. The bit `4 + n` says that the field `n` differs from that of [`PLAIN`], bit for bit.
+const FLAGS: u16 = 4;
+
+/// The state of a clip: its frame, its flags, the fields that differ from those of a new clip,
+/// and the body of each child, in the order of its frame.
+struct Body<'a>(&'a Clip);
+
+/// The bodies of the children of a clip.
+struct Bodies<'a>(&'a [Part]);
+
+impl Serialize for Body<'_> {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    let clip = self.0;
+    let fields = [clip.x, clip.y, clip.rotation, clip.scale_x, clip.scale_y, clip.alpha];
+    let mut flags = [clip.playing, clip.dead, clip.visible, clip.free]
+      .iter()
+      .enumerate()
+      .fold(0, |flags, (at, &flag)| flags | u16::from(flag) << at);
+    let mut kept = Vec::new();
+    for (at, (field, plain)) in fields.into_iter().zip(PLAIN).enumerate() {
+      if field.to_bits() != plain.to_bits() {
+        flags |= 1 << (FLAGS + bit(at));
+        kept.push(field);
+      }
+    }
+    (clip.frame, flags, kept, Bodies(&clip.parts)).serialize(serializer)
+  }
+}
+
+impl Serialize for Bodies<'_> {
+  fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(self.0.iter().map(|part| Body(&part.clip)))
+  }
+}
+
+#[expect(clippy::cast_possible_truncation, reason = "a field is one of 6")]
+fn bit(at: usize) -> u16 {
+  at as u16
+}
+
+/// Reads a clip whose book and id come first.
+struct Root;
+
+/// Reads the body of a clip of `id` in `book`.
+#[derive(Clone, Copy)]
+struct Kind {
+  book: Book,
+  id: u16,
+}
+
+/// Reads the bodies of the children that `places` places, in their order.
+struct Children {
+  book: Book,
+  places: &'static [Place],
+}
+
+impl<'de> Visitor<'de> for Root {
+  type Value = Clip;
+
+  fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    formatter.write_str("a clip")
+  }
+
+  fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Clip, A::Error> {
+    let book = next(&mut seq, PhantomData)?;
+    let id = next(&mut seq, PhantomData)?;
+    next(&mut seq, Kind { book, id })
+  }
+}
+
+impl<'de> DeserializeSeed<'de> for Kind {
+  type Value = Clip;
+
+  fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Clip, D::Error> {
+    deserializer.deserialize_tuple(4, self)
+  }
+}
+
+impl<'de> Visitor<'de> for Kind {
+  type Value = Clip;
+
+  fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(formatter, "the body of the clip {} of {:?}", self.id, self.book)
+  }
+
+  fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Clip, A::Error> {
+    let Self { book, id } = self;
+    let sprite = book.sprite(id);
+    let frame: u16 = next(&mut seq, PhantomData)?;
+    if frame == 0 || frame > sprite.map_or(u16::MAX, Sprite::frames) {
+      return Err(de::Error::custom(format!("the clip {id} of {book:?} has no frame {frame}")));
+    }
+    let flags: u16 = next(&mut seq, PhantomData)?;
+    let kept: Vec<f64> = next(&mut seq, PhantomData)?;
+    if flags >> (FLAGS + bit(FIELDS)) != 0 || (flags >> FLAGS).count_ones() as usize != kept.len() {
+      return Err(de::Error::custom(format!("the flags {flags} of a clip name other fields")));
+    }
+    let places = sprite.map_or(&[][..], |sprite| &sprite.frames[usize::from(frame - 1)]);
+    let parts = next(&mut seq, Children { book, places })?;
+    let mut kept = kept.into_iter();
+    let fields = std::array::from_fn(|at| {
+      if flags >> (FLAGS + bit(at)) & 1 == 1 { kept.next().unwrap_or(PLAIN[at]) } else { PLAIN[at] }
+    });
+    let [x, y, rotation, scale_x, scale_y, alpha] = fields;
+    let flag = |at: u16| flags >> at & 1 == 1;
+    let (playing, dead, visible, free) = (flag(0), flag(1), flag(2), flag(3));
+    Ok(Clip {
+      book,
+      id,
+      sprite,
+      frame,
+      playing,
+      parts,
+      dead,
+      visible,
+      free,
+      x,
+      y,
+      rotation,
+      scale_x,
+      scale_y,
+      alpha,
+    })
+  }
+}
+
+impl<'de> DeserializeSeed<'de> for Children {
+  type Value = Vec<Part>;
+
+  fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Vec<Part>, D::Error> {
+    deserializer.deserialize_seq(self)
+  }
+}
+
+impl<'de> Visitor<'de> for Children {
+  type Value = Vec<Part>;
+
+  fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(formatter, "the {} children of a frame", self.places.len())
+  }
+
+  fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Part>, A::Error> {
+    if seq.size_hint().is_some_and(|count| count != self.places.len()) {
+      return Err(de::Error::invalid_length(seq.size_hint().unwrap_or(0), &self));
+    }
+    let book = self.book;
+    self
+      .places
+      .iter()
+      .map(|place| Ok(Part { place, clip: next(&mut seq, Kind { book, id: place.id })? }))
+      .collect()
+  }
+}
+
+/// The next element of `seq`, which `seed` reads: a sequence that ends before it is an error.
+fn next<'de, A: SeqAccess<'de>, T: DeserializeSeed<'de>>(
+  seq: &mut A,
+  seed: T,
+) -> Result<T::Value, A::Error> {
+  seq.next_element_seed(seed)?.ok_or_else(|| de::Error::custom("a clip ends too soon"))
+}
+
 /// A sprite is one of its book, so two sprites are equal when they are the same one.
 impl PartialEq for Sprite {
   fn eq(&self, other: &Self) -> bool {
@@ -558,6 +747,58 @@ mod tests {
 
   fn body_mut(figure: &mut Clip) -> &mut Clip {
     figure.named_mut("spr").expect("the figure holds its body")
+  }
+
+  fn decoded(clip: &Clip) -> Result<Clip, postcard::Error> {
+    postcard::from_bytes(&postcard::to_allocvec(clip).expect("a clip encodes"))
+  }
+
+  #[test]
+  fn a_clip_travels_bit_for_bit_with_its_frame_its_flags_and_its_children() {
+    let mut figure = Clip::figure();
+    body_mut(&mut figure).play_from(At::Label("run"));
+    figure.advance();
+    (figure.rotation, figure.x, figure.alpha) = (-0.0, 0.1 + 0.2, 0.5);
+    let got = decoded(&figure).expect("a figure decodes");
+    assert_eq!(got, figure);
+    assert_eq!(got.rotation.to_bits(), (-0.0_f64).to_bits());
+    let mut shape = Clip::new(Book::Effects, 1);
+    shape.stop_at(At::Frame(7));
+    assert!(!shape.is_sprite());
+    assert_eq!(decoded(&shape), Ok(shape));
+  }
+
+  #[test]
+  fn a_clip_out_of_the_frames_or_the_children_of_its_sprite_does_not_travel() {
+    let mut late = Clip::figure();
+    body_mut(&mut late).frame = 109;
+    let mut early = Clip::new(Book::Effects, 1);
+    early.frame = 0;
+    let mut fewer = Clip::figure();
+    body_mut(&mut fewer).parts.pop();
+    for clip in [late, early, fewer] {
+      assert_eq!(decoded(&clip), Err(postcard::Error::SerdeDeCustom), "{clip:?}");
+    }
+    let named = (Book::Effects, 179_u16, 1_u16, 1_u16 << 4, Vec::<f64>::new());
+    let unnamed = (Book::Effects, 179_u16, 1_u16, 1_u16 << 10, Vec::<f64>::new());
+    for forged in [named, unnamed] {
+      let bytes = postcard::to_allocvec(&forged).expect("a tuple encodes");
+      assert_eq!(postcard::from_bytes::<Clip>(&bytes), Err(postcard::Error::SerdeDeCustom));
+    }
+  }
+
+  #[test]
+  fn a_clip_of_another_shape_says_what_it_expected() {
+    let cases = [
+      ("5", "expected a clip"),
+      ("[]", "a clip ends too soon"),
+      (r#"["Figure", 114, 5]"#, "expected the body of the clip 114 of Figure"),
+      (r#"["Figure", 114, [1, 0, [], 5]]"#, "expected the 3 children of a frame"),
+    ];
+    for (text, expected) in cases {
+      let error = serde_json::from_str::<Clip>(text).expect_err("the text holds no clip");
+      assert!(error.to_string().contains(expected), "{text}: {error}");
+    }
   }
 
   #[test]
