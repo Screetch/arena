@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "arena-client"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "arena-sim",
@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "arena-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arena-sim",
  "postcard",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "arena-sim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libm",
  "postcard",

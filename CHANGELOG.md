@@ -3,6 +3,18 @@
 Each release of arena is listed here, the newest first. release-please writes the entry of each release from the
 titles of the pull requests that it holds, as [the template of a pull request](.github/pull_request_template.md) says.
 
+## [0.3.0](https://github.com/Screetch/arena/compare/v0.2.0...v0.3.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sim:** Run many fighters in one world from their intents ([#27](https://github.com/Screetch/arena/issues/27))
+
+### Features
+
+* **protocol:** Add the messages between a client and the server ([#29](https://github.com/Screetch/arena/issues/29)) ([283ff4b](https://github.com/Screetch/arena/commit/283ff4b52861f2539ed581fb0d3fd9652de69c9c))
+* **sim:** Run many fighters in one world from their intents ([#27](https://github.com/Screetch/arena/issues/27)) ([184c518](https://github.com/Screetch/arena/commit/184c518449e84c36dbd4a99858f38e6600a70c13))
+
 ## [0.2.0](https://github.com/Screetch/arena/compare/v0.1.0...v0.2.0) (2026-11-20)
 
 
